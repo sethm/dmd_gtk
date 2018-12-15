@@ -1,10 +1,17 @@
 #include <gtk/gtk.h>
 
+#include <stdio.h>
 #include <math.h>
 #include <time.h>
 #include <stdint.h>
+#include <pthread.h>
 
 static cairo_surface_t *surface = NULL;
+static pthread_t dmd_thread;
+
+uint8_t last_kb_char;
+uint8_t kb_pending = 0;
+volatile int dmd_thread_run = 1;
 
 extern int dmd_init();
 extern int dmd_reset();
@@ -53,10 +60,7 @@ static void
 close_window(void)
 {
     printf("[close_window]\n");
-    gtk_main_quit();
-    if (surface) {
-        cairo_surface_destroy(surface);
-    }
+    dmd_thread_run = 0;
 }
 
 static gboolean
@@ -82,9 +86,15 @@ long get_current_time_ms()
     return (s * 1000) + ms;
 }
 
-static void
-refresh_display(GtkWidget *widget)
+static gboolean
+refresh_display(gpointer data)
 {
+    GtkWidget *widget = (GtkWidget *)data;
+
+    if (widget == NULL || !GTK_IS_WIDGET(widget)) {
+        return FALSE;
+    }
+
     GdkPixbuf *pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB,
                                        TRUE,
                                        8,
@@ -132,6 +142,8 @@ refresh_display(GtkWidget *widget)
     cairo_destroy(cr);
 
     gtk_widget_queue_draw(widget);
+
+    return TRUE;
 }
 
 static gboolean
@@ -148,24 +160,41 @@ button_press_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer data)
     return TRUE;
 }
 
-uint8_t last_kb_char;
-uint8_t kb_pending = 0;
-
-static gboolean
-run_dmd(gpointer user_data)
+void *dmd_run(void *threadid)
 {
-    for (int i = 0; i < 40000; i++) {
+    long double steps = 0;
+    int rs;
+    struct timespec sleep_time_req, sleep_time_rem;
+
+    sleep_time_req.tv_sec = 0;
+    sleep_time_req.tv_nsec = 10000000;
+
+    printf("[DMD thread starting]");
+    dmd_init();
+    dmd_reset();
+
+    while (dmd_thread_run) {
         dmd_step();
+
+        // Stop every once in a while to poll for I/O and idle.
+        if (steps++ == 250000) {
+            if (kb_pending && dmd_rx_keyboard(last_kb_char)) {
+                printf("[DMD thread] Sent char 0x%02x\n", last_kb_char);
+                kb_pending = 0;
+            }
+
+            steps = 0;
+            rs = nanosleep(&sleep_time_req, &sleep_time_rem);
+            if (rs) {
+                printf("[DMD thread] SLEEP FAILED. Result=%d\n", rs);
+                break;
+            }
+        }
     }
 
-    // Poll.
-    if (kb_pending && dmd_rx_keyboard(last_kb_char)) {
-        printf("[run_dmd] Just sent char 0x%02x\n", last_kb_char);
-        kb_pending = 0;
-    }
+    printf("[DMD thread exiting]\n");
 
-    refresh_display((GtkWidget *)user_data);
-    return G_SOURCE_CONTINUE;
+    pthread_exit(NULL);
 }
 
 static gboolean
@@ -204,7 +233,7 @@ activate(GtkApplication *app, gpointer user_data)
 
     gtk_container_add(GTK_CONTAINER(frame), drawing_area);
 
-    g_timeout_add(33, run_dmd, drawing_area);
+    g_timeout_add(20, refresh_display, drawing_area);
 
     /* Signals used to handle the backing surface */
     g_signal_connect(drawing_area, "draw",
@@ -241,17 +270,32 @@ main(int argc, char *argv[])
 
     GtkApplication *app;
     int status;
+    long thread_id;
+    int rc;
 
-    dmd_init();
-    dmd_reset();
-    for (int i = 0; i < 1000000; i++) {
-        dmd_step();
+    rc = pthread_create(&dmd_thread, NULL, dmd_run, (void *)thread_id);
+    if (rc) {
+        printf("ERROR: Could not create main DMD cpu thread. Status=%d\n", rc);
+        exit(-1);
     }
 
     app = gtk_application_new("com.loomcom.dmd", G_APPLICATION_FLAGS_NONE);
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
 
     status = g_application_run(G_APPLICATION(app), argc, argv);
+
+    void *join_status;
+    rc = pthread_join(dmd_thread, &join_status);
+    if (rc) {
+        printf("ERROR: Could not join thread. Status=%d\n", rc);
+        exit(-1);
+    }
+
+    printf("Main: DMD thread is done.\n");
+
+    /* if (surface) { */
+    /*     cairo_surface_destroy(surface); */
+    /* } */
 
     g_object_unref(app);
 
