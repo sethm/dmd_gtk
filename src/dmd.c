@@ -131,8 +131,6 @@ button_press_event_cb(GtkWidget *widget, GdkEventButton *event, gpointer *data)
     return TRUE;
 }
 
-
-
 /* Called on startup as a callback */
 static void
 activate(GtkApplication *app, gpointer user_data)
@@ -178,7 +176,7 @@ activate(GtkApplication *app, gpointer user_data)
 }
 
 
-
+extern unsigned char test_function();
 
 int
 main(int argc, char *argv[])
@@ -186,6 +184,8 @@ main(int argc, char *argv[])
 
     GtkApplication *app;
     int status;
+
+    printf("TEST_FUNCTION: %02x\n", test_function());
 
     app = gtk_application_new("com.loomcom.dmd", G_APPLICATION_FLAGS_NONE);
     g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);

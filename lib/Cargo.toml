@@ -5,4 +5,7 @@ authors = ["Seth Morabito <web@loomcom.com>"]
 edition = "2018"
 
 [dependencies]
-dmd_core = "0.2.1"
+dmd_core = "^0.2"
+
+[lib]
+crate-type = ["staticlib"]
