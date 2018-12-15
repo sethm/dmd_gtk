@@ -13,7 +13,6 @@ uint8_t last_kb_char;
 uint8_t kb_pending = 0;
 volatile int dmd_thread_run = 1;
 
-extern int dmd_init();
 extern int dmd_reset();
 extern uint8_t *dmd_video_ram();
 extern int dmd_step();
@@ -60,6 +59,9 @@ static void
 close_window(void)
 {
     printf("[close_window]\n");
+    if (surface) {
+        cairo_surface_destroy(surface);
+    }
     dmd_thread_run = 0;
 }
 
@@ -170,7 +172,6 @@ void *dmd_run(void *threadid)
     sleep_time_req.tv_nsec = 10000000;
 
     printf("[DMD thread starting]");
-    dmd_init();
     dmd_reset();
 
     while (dmd_thread_run) {
@@ -178,8 +179,8 @@ void *dmd_run(void *threadid)
 
         // Stop every once in a while to poll for I/O and idle.
         if (steps++ == 250000) {
-            if (kb_pending && dmd_rx_keyboard(last_kb_char)) {
-                printf("[DMD thread] Sent char 0x%02x\n", last_kb_char);
+            if (kb_pending && dmd_rx_keyboard(last_kb_char) == 0) {
+                printf("[DMD thread] Sent char 0x%02x.\n", last_kb_char);
                 kb_pending = 0;
             }
 
@@ -292,10 +293,6 @@ main(int argc, char *argv[])
     }
 
     printf("Main: DMD thread is done.\n");
-
-    /* if (surface) { */
-    /*     cairo_surface_destroy(surface); */
-    /* } */
 
     g_object_unref(app);
 
