@@ -7,7 +7,7 @@ EXE = dmd
 CSRC = $(wildcard src/*.c)
 OBJ = $(CSRC:.c=.o)
 RUSTLIB = $(LIBDIR)/target/release/libdmd_bindings.a
-LDFLAGS = $(GTKLIBS) -lm
+LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl
 
 .PHONY: all clean
 

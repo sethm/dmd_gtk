@@ -1,2 +1,3 @@
 **/*.o
+lib/target
 dmd
