@@ -138,12 +138,12 @@ fn dmd_mouse_up(button: uint8_t) -> c_int {
 }
 
 #[no_mangle]
-fn tx_poll(rx_char: &mut uint8_t) -> c_int {
+fn dmd_tx_poll(tx_char: &mut uint8_t) -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
             match dmd.tx_poll() {
                 Some(c) => {
-                    *rx_char = c;
+                    *tx_char = c;
                     SUCCESS
                 }
                 None => BUSY
