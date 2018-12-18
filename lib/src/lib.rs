@@ -7,7 +7,6 @@ use libc::*;
 use std::sync::Mutex;
 use std::ptr;
 use dmd_core::dmd::Dmd;
-use dmd_core::err::DuartError;
 
 lazy_static! {
     static ref DMD: Mutex<Dmd> = Mutex::new(Dmd::new());
@@ -82,10 +81,8 @@ fn dmd_get_duart_output_port(oport: &mut uint8_t) -> c_int {
 fn dmd_rx_char(c: uint8_t) -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
-            match dmd.rx_char(c as u8) {
-                Ok(()) => SUCCESS,
-                Err(DuartError::ReceiverNotReady) => BUSY
-            }
+            dmd.rx_char(c as u8);
+            SUCCESS
         }
         Err(_) => ERROR
     }
@@ -95,10 +92,8 @@ fn dmd_rx_char(c: uint8_t) -> c_int {
 fn dmd_rx_keyboard(c: uint8_t) -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
-            match dmd.rx_keyboard(c) {
-                Ok(()) => SUCCESS,
-                Err(DuartError::ReceiverNotReady) => BUSY
-            }
+            dmd.rx_keyboard(c);
+            SUCCESS
         }
         Err(_) => ERROR
     }

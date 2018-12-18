@@ -9,6 +9,12 @@ OBJ = $(CSRC:.c=.o)
 RUSTLIB = $(LIBDIR)/target/release/libdmd_bindings.a
 LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl
 
+ifdef DEBUG
+CFLAGS += -g -O0
+else
+CFLAGS += -O3
+endif
+
 .PHONY: all clean
 
 all: $(EXE)

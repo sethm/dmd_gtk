@@ -13,6 +13,9 @@ This is an actively developed project, and is not ready for use yet.
 * [dmd_core](https://github.com/sethm/dmd_core): DMD 5620 core
   implementation library, used by this project.
 
+* [libtelnet](https://github.com/seanmiddleditch/libtelnet): The
+  telnet library used by this project.
+
 ## License
 
 MIT license. See the file [LICENSE.md](LICENSE.md)
