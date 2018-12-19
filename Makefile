@@ -3,7 +3,7 @@ LIBDIR = lib
 CC = gcc
 CFLAGS = $(shell pkg-config --cflags gtk+-3.0) -Wall
 GTKLIBS = $(shell pkg-config --libs gtk+-3.0)
-EXE = dmd
+EXE = dmd5620
 CSRC = $(wildcard src/*.c)
 OBJ = $(CSRC:.c=.o)
 RUSTLIB = $(LIBDIR)/target/release/libdmd_bindings.a

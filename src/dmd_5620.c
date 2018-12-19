@@ -1,3 +1,29 @@
+/*
+ * This file is part of the GTK+ DMD 5620 Emultor.
+ *
+ * Copyright 2018, Seth Morabito <web@loomcom.com>
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use, copy,
+ * modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 #include <gtk/gtk.h>
 #include <gmodule.h>
 
@@ -18,12 +44,10 @@
 #include <stdint.h>
 #include <pthread.h>
 
-#include "libtelnet.h"
+#include "version.h"
+#include "dmd_5620.h"
 
-#define WIDTH 800
-#define HEIGHT 1024
-#define NVRAM_SIZE 2<<12
-
+static char VERSION_STRING[64];
 static GtkWidget *main_window;
 static char telnet_buf[90];
 static cairo_surface_t *surface = NULL;
@@ -33,7 +57,8 @@ static int sock = -1;
 static telnet_t *telnet;
 static GQueue *telnet_rx_queue;
 static char *nvram = NULL;
-static volatile int dmd_thread_run = 1;
+static volatile gboolean dmd_thread_run = TRUE;
+static volatile int sigint_count = 0;
 
 /* Implement a very dumb protocol. */
 static const telnet_telopt_t dmd_telopts[] = {
@@ -46,24 +71,6 @@ static const telnet_telopt_t dmd_telopts[] = {
     { -1, 0, 0}
 };
 
-/* DMD functions */
-extern int dmd_reset();
-extern uint8_t *dmd_video_ram();
-extern int dmd_step();
-// extern int dmd_(size_t steps);
-extern int dmd_get_pc(uint32_t *pc);
-extern int dmd_get_register(uint8_t reg, uint32_t *val);
-extern uint8_t dmd_get_duart_output_port();
-extern int dmd_rx_char(uint8_t c);
-extern int dmd_rx_keyboard(uint8_t c);
-extern int dmd_tx_poll(uint8_t *c);
-extern int dmd_mouse_move(uint16_t x, uint16_t y);
-extern int dmd_mouse_down(uint8_t button);
-extern int dmd_mouse_up(uint8_t button);
-extern int dmd_set_nvram(uint8_t *buf);
-extern int dmd_get_nvram(uint8_t *buf);
-
-volatile int sigint_count = 0;
 
 static void
 int_handler(int _signal)
@@ -82,29 +89,30 @@ int_handler(int _signal)
     sigint_count++;
 }
 
-static void
-_send(int sock, const char *buffer, size_t size)
+static int
+tx_send(int sock, const char *buffer, size_t size)
 {
     int rs;
 
-    /* send data */
     while (size > 0) {
         if ((rs = send(sock, buffer, size, 0)) == -1) {
             fprintf(stderr, "send() failed: %s\n", strerror(errno));
-            exit(1);
+            return 1;
         } else if (rs == 0) {
             fprintf(stderr, "send() unexpectedly returned 0\n");
-            exit(1);
+            return 1;
         }
 
         /* update pointer and size to see if we've got more to send */
         buffer += rs;
         size -= rs;
     }
+
+    return 0;
 }
 
 static void
-telnet_event_handler(telnet_t *telnet, telnet_event_t *ev, void *user_data)
+telnet_handler(telnet_t *telnet, telnet_event_t *ev, void *data)
 {
     switch (ev->type) {
     case TELNET_EV_DATA:
@@ -116,7 +124,11 @@ telnet_event_handler(telnet_t *telnet, telnet_event_t *ev, void *user_data)
         }
         break;
     case TELNET_EV_SEND:
-        _send(sock, ev->data.buffer, ev->data.size);
+        if (tx_send(sock, ev->data.buffer, ev->data.size) != 0) {
+            /* TODO: It's probably best to offer a clean shutdown and/or
+               retry here, somehow. */
+            fprintf(stderr, "ERROR: Could not send telnet buffer!\n");
+        }
         break;
     case TELNET_EV_TTYPE:
         if (ev->ttype.cmd == TELNET_TTYPE_SEND) {
@@ -129,7 +141,7 @@ telnet_event_handler(telnet_t *telnet, telnet_event_t *ev, void *user_data)
 }
 
 static int
-dmd_telnet_connect(char *host, char *port)
+telnet_connect(char *host, char *port)
 {
     struct addrinfo *ai;
     struct addrinfo hints;
@@ -176,13 +188,13 @@ dmd_telnet_connect(char *host, char *port)
         return -1;
     }
 
-    telnet = telnet_init(dmd_telopts, telnet_event_handler, 0, &sock);
+    telnet = telnet_init(dmd_telopts, telnet_handler, 0, &sock);
 
     return 0;
 }
 
 int
-dmd_telnet_disconnect()
+telnet_disconnect()
 {
     if (sock < 0) {
         return -1;
@@ -194,38 +206,6 @@ dmd_telnet_disconnect()
     sock = -1;
 
     return 0;
-}
-
-static void
-clear_surface()
-{
-    cairo_t *cr;
-
-    cr = cairo_create(surface);
-
-    cairo_set_source_rgb(cr, 1, 1, 1);
-    cairo_paint(cr);
-
-    cairo_destroy(cr);
-}
-
-static gboolean
-configure_event_cb(GtkWidget *widget, GdkEventConfigure *event, gpointer data)
-{
-    if (surface) {
-        cairo_surface_destroy(surface);
-    }
-
-    surface = gdk_window_create_similar_surface(gtk_widget_get_window(widget),
-                                                CAIRO_CONTENT_COLOR,
-                                                gtk_widget_get_allocated_width(widget),
-                                                gtk_widget_get_allocated_height(widget));
-
-    pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, WIDTH, HEIGHT);
-
-    clear_surface();
-
-    return TRUE;
 }
 
 
@@ -242,8 +222,6 @@ close_window()
         } else {
             if (fwrite(buf, NVRAM_SIZE, 1, fp) != 1) {
                 fprintf(stderr, "Could not write full NVRAM file %s\n", nvram);
-            } else {
-                printf("Stored NVRAM file %s\n", nvram);
             }
         }
     }
@@ -252,12 +230,30 @@ close_window()
         cairo_surface_destroy(surface);
     }
 
-    dmd_telnet_disconnect();
+    telnet_disconnect();
     dmd_thread_run = 0;
+    gtk_main_quit();
 }
 
 static gboolean
-draw_cb(GtkWidget *widget, cairo_t *cr, gpointer data)
+configure_handler(GtkWidget *widget, GdkEventConfigure *event, gpointer data)
+{
+    if (surface) {
+        cairo_surface_destroy(surface);
+    }
+
+    surface = gdk_window_create_similar_surface(gtk_widget_get_window(widget),
+                                                CAIRO_CONTENT_COLOR,
+                                                gtk_widget_get_allocated_width(widget),
+                                                gtk_widget_get_allocated_height(widget));
+
+    pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, WIDTH, HEIGHT);
+
+    return TRUE;
+}
+
+static gboolean
+draw_handler(GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_surface(cr, surface, 0, 0);
     cairo_paint(cr);
@@ -265,10 +261,15 @@ draw_cb(GtkWidget *widget, cairo_t *cr, gpointer data)
     return FALSE;
 }
 
+
 static gboolean
 refresh_display(gpointer data)
 {
+    uint8_t oport;
     GtkWidget *widget = (GtkWidget *)data;
+
+    const struct color *fg_color;
+    const struct color *bg_color;
 
     if (widget == NULL || !GTK_IS_WIDGET(widget)) {
         return FALSE;
@@ -283,21 +284,34 @@ refresh_display(gpointer data)
         fprintf(stderr, "ERROR: Unable to access video ram!\n");
         exit(-1);
     } else {
+        /* Bit 2 of the DUART output port controls whether the
+         * screen is Dark-on-Light or Light-on-Dark
+         */
+        dmd_get_duart_output_port(&oport);
+
+        if (oport & 0x2) {
+            fg_color = &COLOR_DARK;
+            bg_color = &COLOR_LIGHT;
+        } else {
+            fg_color = &COLOR_LIGHT;
+            bg_color = &COLOR_DARK;
+        }
+
         for (int y = 0; y < HEIGHT; y++) {
             for (int x = 0; x < byte_width; x++) {
                 uint8_t b = vram[y*byte_width + x];
                 for (int i = 0; i < 8; i++) {
                     int bit = (b >> (7 - i)) & 1;
                     if (bit) {
-                        p[p_index++] = 0;
-                        p[p_index++] = 0xff;
-                        p[p_index++] = 0;
-                        p[p_index++] = 0xff;
+                        p[p_index++] = fg_color->r;
+                        p[p_index++] = fg_color->g;
+                        p[p_index++] = fg_color->b;
+                        p[p_index++] = fg_color->a;
                     } else {
-                        p[p_index++] = 0;
-                        p[p_index++] = 0;
-                        p[p_index++] = 0;
-                        p[p_index++] = 0xff;
+                        p[p_index++] = bg_color->r;
+                        p[p_index++] = bg_color->g;
+                        p[p_index++] = bg_color->b;
+                        p[p_index++] = bg_color->a;
                     }
                 }
             }
@@ -349,10 +363,10 @@ mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data)
 /*
  * This is the main thread for stepping the DMD emulator.
  */
-void *dmd_cpu_thread(void *threadid)
+static void *
+dmd_cpu_thread(void *threadid)
 {
     struct timespec sleep_time_req, sleep_time_rem;
-    long long int steps = 0;
     int size;
     ssize_t read_count;
     uint8_t rxc;
@@ -360,7 +374,6 @@ void *dmd_cpu_thread(void *threadid)
     uint8_t nvram_buf[NVRAM_SIZE];
     char tx_buf[1];
     FILE *fp;
-    uint32_t pc;
 
     sleep_time_req.tv_sec = 0;
     sleep_time_req.tv_nsec = 250000;
@@ -372,11 +385,7 @@ void *dmd_cpu_thread(void *threadid)
         fp = fopen(nvram, "r");
 
         /* If there's no file yet, don't load anything. */
-        if (fp == NULL) {
-            fprintf(stderr,
-                    "Could not open NVRAM file %s. Skipping.\n",
-                    nvram);
-        } else {
+        if (fp != NULL) {
             /* Validate the file size */
             fseek(fp, 0, SEEK_END);
             size = ftell(fp);
@@ -393,59 +402,53 @@ void *dmd_cpu_thread(void *threadid)
                             nvram);
                 } else {
                     dmd_set_nvram(nvram_buf);
-                    printf("Set NVRAM from file %s.\n", nvram);
                 }
             }
         }
     }
 
     while (dmd_thread_run) {
-        dmd_step();
-        dmd_get_pc(&pc);
+        dmd_step_loop(10000);
 
-        /* Stop occasionally to poll for IO and idle. */
-        if (steps++ % 10000 == 0) {
+        /* Poll the receive queue for input for the RS-232 line */
+        if (!g_queue_is_empty(telnet_rx_queue)) {
+            rxc = (uint8_t)(GPOINTER_TO_UINT(g_queue_pop_tail(telnet_rx_queue)));
+            dmd_rx_char(rxc);
+        }
 
-            /* Poll the receive queue for input for the RS-232 line */
-            if (!g_queue_is_empty(telnet_rx_queue)) {
-                rxc = (uint8_t)(GPOINTER_TO_UINT(g_queue_pop_tail(telnet_rx_queue)));
-                dmd_rx_char(rxc);
+        /* If a socket is available... */
+        if (sock >= 0) {
+
+            /* Poll for output from the RS-232 line */
+            if (dmd_tx_poll(&txc) == 0) {
+                tx_buf[0] = txc;
+                telnet_send(telnet, tx_buf, 1);
             }
 
-            /* If a socket is available... */
-            if (sock >= 0) {
+            /* Try to receive more data from Telnet */
+            read_count = recv(sock, telnet_buf, sizeof(telnet_buf), 0);
 
-                /* Poll for output from the RS-232 line */
-                if (dmd_tx_poll(&txc) == 0) {
-                    tx_buf[0] = txc;
-                    telnet_send(telnet, tx_buf, 1);
-                }
-
-                /* Try to receive more data from Telnet */
-                read_count = recv(sock, telnet_buf, sizeof(telnet_buf), 0);
-
-                if (read_count < 0) {
-                    if (errno == EAGAIN) {
-                        /* No worries, try again. */
-                    } else {
-                        fprintf(stderr,
-                                "ERROR: Could not receive from "
-                                "telnet. Closing connection. "
-                                "rc=%ld err=%s\n",
-                                read_count,
-                                strerror(errno));
-                        dmd_telnet_disconnect();
-                        break;
-                    }
+            if (read_count < 0) {
+                if (errno == EAGAIN) {
+                    /* No worries, try again. */
                 } else {
-                    telnet_recv(telnet, telnet_buf, read_count);
+                    fprintf(stderr,
+                            "ERROR: Could not receive from "
+                            "telnet. Closing connection. "
+                            "rc=%ld err=%s\n",
+                            read_count,
+                            strerror(errno));
+                    telnet_disconnect();
+                    break;
                 }
+            } else {
+                telnet_recv(telnet, telnet_buf, read_count);
             }
+        }
 
-            if (nanosleep(&sleep_time_req, &sleep_time_rem)) {
-                fprintf(stderr, "ERROR: Unable to idle.\n");
-                break;
-            }
+        if (nanosleep(&sleep_time_req, &sleep_time_rem)) {
+            fprintf(stderr, "ERROR: Unable to idle.\n");
+            break;
         }
     }
 
@@ -455,7 +458,7 @@ void *dmd_cpu_thread(void *threadid)
 }
 
 static gboolean
-keydown_event(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
+keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
     gboolean is_ctrl = event->state & GDK_CONTROL_MASK;
     gboolean is_shift = event->state & GDK_SHIFT_MASK;
@@ -624,12 +627,14 @@ keydown_event(GtkWidget *widget, GdkEventKey *event, gpointer user_data)
 
 /* Called on startup as a callback */
 static void
-activate(GtkApplication *app, gpointer user_data)
+dmd_setup(int *argc, char ***argv)
 {
-    GtkWidget *frame;
     GtkWidget *drawing_area;
 
-    main_window = gtk_application_window_new(app);
+    gtk_init(argc, argv);
+
+    main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    gtk_window_set_icon_name(GTK_WINDOW(main_window), "dmd5620");
     gtk_window_set_title(GTK_WINDOW(main_window), "AT&T DMD 5620");
     gtk_window_set_resizable(GTK_WINDOW(main_window), FALSE);
 
@@ -637,24 +642,20 @@ activate(GtkApplication *app, gpointer user_data)
 
     gtk_container_set_border_width(GTK_CONTAINER(main_window), 0);
 
-    frame = gtk_frame_new(NULL);
-    gtk_frame_set_shadow_type(GTK_FRAME(frame), GTK_SHADOW_IN);
-    gtk_container_add(GTK_CONTAINER(main_window), frame);
-
     drawing_area = gtk_drawing_area_new();
 
     gtk_widget_set_size_request(drawing_area, 800, 1024);
 
-    gtk_container_add(GTK_CONTAINER(frame), drawing_area);
+    gtk_container_add(GTK_CONTAINER(main_window), drawing_area);
 
     /* Try for 30 fps */
     g_timeout_add(33, refresh_display, drawing_area);
 
     /* Signals used to handle the backing surface */
     g_signal_connect(drawing_area, "draw",
-                     G_CALLBACK(draw_cb), NULL);
+                     G_CALLBACK(draw_handler), NULL);
     g_signal_connect(drawing_area, "configure-event",
-                     G_CALLBACK(configure_event_cb), NULL);
+                     G_CALLBACK(configure_handler), NULL);
 
     /* UI signals */
     g_signal_connect(drawing_area, "button-press-event",
@@ -662,7 +663,7 @@ activate(GtkApplication *app, gpointer user_data)
     g_signal_connect(drawing_area, "button-release-event",
                      G_CALLBACK(mouse_button), NULL);
     g_signal_connect(G_OBJECT(main_window), "key-press-event",
-                     G_CALLBACK(keydown_event), NULL);
+                     G_CALLBACK(keydown), NULL);
     g_signal_connect(drawing_area, "motion-notify-event",
                      G_CALLBACK(mouse_moved), NULL);
 
@@ -679,20 +680,24 @@ activate(GtkApplication *app, gpointer user_data)
 int
 main(int argc, char *argv[])
 {
-    GtkApplication *app;
-    int c, status, errflg = 0;
+    int c, errflg = 0;
     long thread_id = 0;
     char *host = NULL, *port = NULL;
     int portno;
     int rs;
+
+    snprintf(VERSION_STRING, 64, "%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
 
     signal(SIGINT, int_handler);
 
     extern char *optarg;
     extern int optind, optopt;
 
-    while ((c = getopt(argc, argv, "h:p:n:")) != -1) {
+    while ((c = getopt(argc, argv, "vh:p:n:")) != -1) {
         switch(c) {
+        case 'v':
+            printf("Version: %s\n", VERSION_STRING);
+            exit(0);
         case 'h':
             host = optarg;
             break;
@@ -710,7 +715,7 @@ main(int argc, char *argv[])
     }
 
     if (errflg || host == NULL) {
-        fprintf(stderr, "Usage: dmd -h host [-p port] [-n nvram_file]\n");
+        fprintf(stderr, "Usage: dmd5620 [-v] -h host [-p port] [-n nvram_file] [-- <gtk_options> ...]\n");
         exit(2);
     }
 
@@ -728,7 +733,7 @@ main(int argc, char *argv[])
     /* Initialize the telnet receive queue. */
     telnet_rx_queue = g_queue_new();
 
-    if ((rs = dmd_telnet_connect(host, port)) != 0) {
+    if ((rs = telnet_connect(host, port)) != 0) {
         fprintf(stderr, "Unable to connect to %s:%s: %s\n",
                 host, port, strerror(errno));
         exit(-1);
@@ -739,10 +744,9 @@ main(int argc, char *argv[])
         exit(-1);
     }
 
-    app = gtk_application_new("com.loomcom.dmd", G_APPLICATION_FLAGS_NONE);
-    g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
+    dmd_setup(&argc, &argv);
 
-    status = g_application_run(G_APPLICATION(app), 0, NULL);
+    gtk_main();
 
     void *join_status;
     if ((rs = pthread_join(dmd_thread, &join_status)) != 0) {
@@ -750,7 +754,5 @@ main(int argc, char *argv[])
         exit(-1);
     }
 
-    g_object_unref(app);
-
-    return status;
+    return 0;
 }

@@ -54,7 +54,7 @@ fn dmd_step() -> c_int {
 }
 
 #[no_mangle]
-fn dmd_run(steps: usize) -> c_int {
+fn dmd_step_loop(steps: usize) -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
             dmd.run(steps);
