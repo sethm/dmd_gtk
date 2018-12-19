@@ -46,11 +46,20 @@ fn dmd_video_ram() -> *const u8 {
 fn dmd_step() -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
-            match dmd.step_with_error() {
-                Ok(()) => SUCCESS,
-                Err(_) => ERROR
-            }
+            dmd.step();
+            SUCCESS
         }
+        Err(_) => ERROR
+    }
+}
+
+#[no_mangle]
+fn dmd_run(steps: usize) -> c_int {
+    match DMD.lock() {
+        Ok(mut dmd) => {
+            dmd.run(steps);
+            SUCCESS
+        },
         Err(_) => ERROR
     }
 }
@@ -60,6 +69,17 @@ fn dmd_get_pc(pc: &mut uint32_t) -> c_int {
     match DMD.lock() {
         Ok(dmd) => {
             *pc = dmd.get_pc();
+            SUCCESS
+        },
+        Err(_) => ERROR
+    }
+}
+
+#[no_mangle]
+fn dmd_get_register(reg: uint8_t, val: &mut uint32_t) -> c_int {
+    match DMD.lock() {
+        Ok(dmd) => {
+            *val = dmd.get_register(reg);
             SUCCESS
         },
         Err(_) => ERROR
@@ -125,7 +145,7 @@ fn dmd_mouse_down(button: uint8_t) -> c_int {
 fn dmd_mouse_up(button: uint8_t) -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
-            dmd.mouse_up(button as u8);
+            dmd.mouse_up(button);
             SUCCESS
         }
         Err(_) => ERROR
@@ -143,6 +163,31 @@ fn dmd_tx_poll(tx_char: &mut uint8_t) -> c_int {
                 }
                 None => BUSY
             }
+        }
+        Err(_) => ERROR
+    }
+}
+
+#[no_mangle]
+fn dmd_set_nvram(nvram: &[u8; 8192]) -> c_int {
+    match DMD.lock() {
+        Ok(mut dmd) => {
+            dmd.set_nvram(nvram);
+            SUCCESS
+        }
+        Err(_) => ERROR
+    }
+}
+
+#[no_mangle]
+fn dmd_get_nvram(nvram: &mut [u8; 8192]) -> c_int {
+    match DMD.lock() {
+        Ok(dmd) => {
+            let buf = dmd.get_nvram();
+            for i in 0..8192 {
+                nvram[i] = buf[i];
+            }
+            SUCCESS
         }
         Err(_) => ERROR
     }
