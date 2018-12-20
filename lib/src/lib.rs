@@ -153,10 +153,26 @@ fn dmd_mouse_up(button: uint8_t) -> c_int {
 }
 
 #[no_mangle]
-fn dmd_tx_poll(tx_char: &mut uint8_t) -> c_int {
+fn dmd_rs232_tx_poll(tx_char: &mut uint8_t) -> c_int {
     match DMD.lock() {
         Ok(mut dmd) => {
-            match dmd.tx_poll() {
+            match dmd.rs232_tx_poll() {
+                Some(c) => {
+                    *tx_char = c;
+                    SUCCESS
+                }
+                None => BUSY
+            }
+        }
+        Err(_) => ERROR
+    }
+}
+
+#[no_mangle]
+fn dmd_kb_tx_poll(tx_char: &mut uint8_t) -> c_int {
+    match DMD.lock() {
+        Ok(mut dmd) => {
+            match dmd.kb_tx_poll() {
                 Some(c) => {
                     *tx_char = c;
                     SUCCESS

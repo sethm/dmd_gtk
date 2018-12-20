@@ -57,6 +57,7 @@ static int sock = -1;
 static telnet_t *telnet;
 static GQueue *telnet_rx_queue;
 static char *nvram = NULL;
+static volatile gboolean window_beep = FALSE;
 static volatile gboolean dmd_thread_run = TRUE;
 static volatile int sigint_count = 0;
 
@@ -267,7 +268,7 @@ refresh_display(gpointer data)
 {
     uint8_t oport;
     GtkWidget *widget = (GtkWidget *)data;
-
+    GdkWindow *window = gtk_widget_get_window(widget);
     const struct color *fg_color;
     const struct color *bg_color;
 
@@ -279,6 +280,11 @@ refresh_display(gpointer data)
     uint32_t p_index = 0;
     uint8_t *vram = dmd_video_ram();
     int byte_width = WIDTH / 8;
+
+    if (window_beep) {
+        gdk_window_beep(window);
+        window_beep = FALSE;
+    }
 
     if (vram == NULL) {
         fprintf(stderr, "ERROR: Unable to access video ram!\n");
@@ -370,7 +376,7 @@ dmd_cpu_thread(void *threadid)
     int size;
     ssize_t read_count;
     uint8_t rxc;
-    uint8_t txc;
+    uint8_t txc, kbc;
     uint8_t nvram_buf[NVRAM_SIZE];
     char tx_buf[1];
     FILE *fp;
@@ -419,10 +425,21 @@ dmd_cpu_thread(void *threadid)
         /* If a socket is available... */
         if (sock >= 0) {
 
-            /* Poll for output from the RS-232 line */
-            if (dmd_tx_poll(&txc) == 0) {
+            /* Poll for output for the RS-232 line */
+            if (dmd_rs232_tx_poll(&txc) == 0) {
                 tx_buf[0] = txc;
                 telnet_send(telnet, tx_buf, 1);
+            }
+
+            /* Poll for output for the keyboard */
+            if (dmd_kb_tx_poll(&kbc) == 0) {
+                if (kbc & 0x08) {
+                    /* Beep! For thread safety reasons, we don't
+                     * actually interct with GDK in this
+                     * thread. Instead, we set a flag telling
+                     * refresh_display to beep for us. */
+                    window_beep = TRUE;
+                }
             }
 
             /* Try to receive more data from Telnet */
@@ -627,7 +644,7 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
 
 /* Called on startup as a callback */
 static void
-dmd_setup(int *argc, char ***argv)
+gtk_setup(int *argc, char ***argv)
 {
     GtkWidget *drawing_area;
 
@@ -739,12 +756,13 @@ main(int argc, char *argv[])
         exit(-1);
     }
 
+    /* Set up the GTK app */
+    gtk_setup(&argc, &argv);
+
     if ((rs = pthread_create(&dmd_thread, NULL, dmd_cpu_thread, (void *)thread_id)) != 0) {
         fprintf(stderr, "Could not create DMD cpu thread. Status=%d\n", rs);
         exit(-1);
     }
-
-    dmd_setup(&argc, &argv);
 
     gtk_main();
 

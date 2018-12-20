@@ -2,14 +2,14 @@
 name = "dmd_bindings"
 version = "0.1.0"
 dependencies = [
- "dmd_core 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dmd_core 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
 name = "dmd_core"
-version = "0.3.1"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -26,6 +26,6 @@ version = "0.2.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [metadata]
-"checksum dmd_core 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)" = "7949f927d4ead787e431524c209d3f221cca32c97364e8451173d1b777488b97"
+"checksum dmd_core 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "da8a3c077b0448be24a02b2ba47555ba4e6a36aca4d8e24412328046c95fb60a"
 "checksum lazy_static 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a374c89b9db55895453a74c1e38861d9deec0b01b405a82516e9d5de4820dea1"
 "checksum libc 0.2.45 (registry+https://github.com/rust-lang/crates.io-index)" = "2d2857ec59fadc0773853c664d2d18e7198e83883e7060b63c924cb077bd5c74"

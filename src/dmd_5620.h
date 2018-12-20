@@ -54,7 +54,8 @@ extern int dmd_get_register(uint8_t reg, uint32_t *val);
 extern int dmd_get_duart_output_port(uint8_t *val);
 extern int dmd_rx_char(uint8_t c);
 extern int dmd_rx_keyboard(uint8_t c);
-extern int dmd_tx_poll(uint8_t *c);
+extern int dmd_rs232_tx_poll(uint8_t *c);
+extern int dmd_kb_tx_poll(uint8_t *c);
 extern int dmd_mouse_move(uint16_t x, uint16_t y);
 extern int dmd_mouse_down(uint8_t button);
 extern int dmd_mouse_up(uint8_t button);
@@ -77,6 +78,6 @@ static gboolean mouse_moved(GtkWidget *widget, GdkEventMotion *event, gpointer d
 static gboolean mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data);
 static void *dmd_cpu_thread(void *threadid);
 static gboolean keydown(GtkWidget *widget, GdkEventKey *event, gpointer data);
-static void dmd_setup(int *argc, char ***argv);
+static void gtk_setup(int *argc, char ***argv);
 
 #endif

@@ -6,13 +6,16 @@ GTKLIBS = $(shell pkg-config --libs gtk+-3.0)
 EXE = dmd5620
 CSRC = $(wildcard src/*.c)
 OBJ = $(CSRC:.c=.o)
-RUSTLIB = $(LIBDIR)/target/release/libdmd_bindings.a
 LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl
+CARGOFLAGS =
 
 ifdef DEBUG
 CFLAGS += -g -O0
+RUSTLIB = $(LIBDIR)/target/debug/libdmd_bindings.a
 else
-CFLAGS += -O3
+CFLAGS += -O3 -Os -s
+CARGOFLAGS += --release
+RUSTLIB = $(LIBDIR)/target/release/libdmd_bindings.a
 endif
 
 .PHONY: all clean
@@ -24,7 +27,7 @@ clean:
 	cd lib; cargo clean
 
 $(EXE): $(RUSTLIB) $(OBJ)
-	$(CC) -o $@ $^ $(RUSTLIB) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $^ $(RUSTLIB) $(LDFLAGS)
 
 $(RUSTLIB):
-	cd lib; cargo build --release
+	cd lib; cargo build $(CARGOFLAGS)
