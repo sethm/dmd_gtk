@@ -57,13 +57,16 @@ static int sock = -1;
 static telnet_t *telnet;
 static GQueue *telnet_rx_queue;
 static char *nvram = NULL;
+static uint8_t previous_vram[VIDRAM_SIZE];
 static volatile gboolean window_beep = FALSE;
 static volatile gboolean dmd_thread_run = TRUE;
 static volatile int sigint_count = 0;
 
 /* Implement a very dumb protocol. */
 static const telnet_telopt_t dmd_telopts[] = {
-    { TELNET_TELOPT_ECHO,      TELNET_WONT, TELNET_DONT },
+    { TELNET_TELOPT_BINARY,    TELNET_WILL, TELNET_DO   },
+    { TELNET_TELOPT_SGA,       TELNET_WILL, TELNET_DO   },
+    { TELNET_TELOPT_ECHO,      TELNET_WILL, TELNET_DO   },
     { TELNET_TELOPT_TTYPE,     TELNET_WILL, TELNET_DONT },
     { TELNET_TELOPT_COMPRESS,  TELNET_WONT, TELNET_DONT },
     { TELNET_TELOPT_COMPRESS2, TELNET_WONT, TELNET_DONT },
@@ -216,7 +219,7 @@ close_window()
     uint8_t buf[NVRAM_SIZE];
     FILE *fp;
 
-    if (dmd_get_nvram(buf) == 0) {
+    if (nvram != NULL && dmd_get_nvram(buf) == 0) {
         fp = fopen(nvram, "w+");
         if (fp == NULL) {
             fprintf(stderr, "Could not open %s for writing. Skipping\n", nvram);
@@ -276,15 +279,22 @@ refresh_display(gpointer data)
         return FALSE;
     }
 
-    guchar *p = gdk_pixbuf_get_pixels(pixbuf);
-    uint32_t p_index = 0;
-    uint8_t *vram = dmd_video_ram();
-    int byte_width = WIDTH / 8;
-
     if (window_beep) {
         gdk_window_beep(window);
         window_beep = FALSE;
     }
+
+    uint8_t *vram = dmd_video_ram();
+
+    if (memcmp(previous_vram, vram, VIDRAM_SIZE) == 0) {
+        return TRUE;
+    }
+
+    memcpy(previous_vram, vram, VIDRAM_SIZE);
+
+    guchar *p = gdk_pixbuf_get_pixels(pixbuf);
+    uint32_t p_index = 0;
+    int byte_width = WIDTH / 8;
 
     if (vram == NULL) {
         fprintf(stderr, "ERROR: Unable to access video ram!\n");
@@ -382,7 +392,7 @@ dmd_cpu_thread(void *threadid)
     FILE *fp;
 
     sleep_time_req.tv_sec = 0;
-    sleep_time_req.tv_nsec = 250000;
+    sleep_time_req.tv_nsec = 1000000;
 
     dmd_reset();
 
@@ -414,7 +424,7 @@ dmd_cpu_thread(void *threadid)
     }
 
     while (dmd_thread_run) {
-        dmd_step_loop(10000);
+        dmd_step_loop(1000);
 
         /* Poll the receive queue for input for the RS-232 line */
         if (!g_queue_is_empty(telnet_rx_queue)) {
@@ -522,8 +532,20 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
     case GDK_KEY_Delete:
         c = 0xfe;
         break;
+    case GDK_KEY_Down:
+        c = 0x90;
+        break;
+    case GDK_KEY_Up:
+        c = 0x92;
+    case GDK_KEY_Right:
+        c = 0xc3;
+        break;
+    case GDK_KEY_Left:
+        c = 0xc4;
+        break;
     case GDK_KEY_BackSpace:
     case GDK_KEY_Return:
+    case GDK_KEY_Tab:
     case GDK_KEY_space:
     case GDK_KEY_exclam:
     case GDK_KEY_quotedbl:

@@ -4,14 +4,23 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 1.0.0
+Version: 1.1.0
 
 This is an actively developed project.
 
+## Dependencies
+
+The executable has the following dependencies:
+
+* GTK+ 3 (libgtk)
+* GDK Pixbuf 2 (libgdk-pixbuf)
+* Cairo 1.15+ (libcairo)
+* Glib 2 (libglib)
+
 ## Usage
 
-The terminal uses the Telnet protocol to communicate with a remote
-host.
+The terminal emulator uses the Telnet protocol to communicate with a
+remote host.
 
 ```
 dmd5620 -h <host> [-p <port>] [-n <nvram_file>] [-v] [-- <gtk-options> ...]
@@ -22,9 +31,20 @@ If not specified, `<port>` defaults to 23.
 `nvram_file` is the name of a file in which to store the contents of NVRAM.
 This will preserve the state of the NVRAM between runs.
 
+## Changelog
+
+### Version 1.1.0
+
+* Upgraded to `libdmd_core` 0.6.2
+* Removed the need for Rust to compile!
+* Improved timing.
+* Fixed a Telnet bug that prevented BINARY mode negotiation.
+* Reduced CPU usage by not redrawing every frame unless
+  video RAM has changed.
+* Added missing TAB and arrow key support.
+
 ## To Do
 
-- Terminal bell is not yet implemented.
 - Local serial line support is not yet implemented.
 
 ## See Also

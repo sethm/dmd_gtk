@@ -32,6 +32,7 @@
 #define WIDTH 800
 #define HEIGHT 1024
 #define NVRAM_SIZE 2<<12
+#define VIDRAM_SIZE 1024 * 100
 
 struct color
 {

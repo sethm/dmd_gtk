@@ -7,15 +7,16 @@ EXE = dmd5620
 CSRC = $(wildcard src/*.c)
 OBJ = $(CSRC:.c=.o)
 LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl
-CARGOFLAGS =
+CORELIB = $(LIBDIR)/libdmd_core.a
+
+ifeq ($(PREFIX),)
+PREFIX := /usr/local
+endif
 
 ifdef DEBUG
-CFLAGS += -g -O0
-RUSTLIB = $(LIBDIR)/target/debug/libdmd_bindings.a
+CFLAGS+ = -g -O0
 else
 CFLAGS += -O3 -Os -s
-CARGOFLAGS += --release
-RUSTLIB = $(LIBDIR)/target/release/libdmd_bindings.a
 endif
 
 .PHONY: all clean
@@ -24,10 +25,19 @@ all: $(EXE)
 
 clean:
 	@rm -f $(EXE) $(OBJ)
-	cd lib; cargo clean
 
-$(EXE): $(RUSTLIB) $(OBJ)
-	$(CC) $(CFLAGS) -o $@ $^ $(RUSTLIB) $(LDFLAGS)
+$(EXE): $(OBJ)
+	$(CC) $(CFLAGS) -o $@ $^ $(CORELIB) $(LDFLAGS)
 
-$(RUSTLIB):
-	cd lib; cargo build $(CARGOFLAGS)
+install: $(EXE)
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 755 $(EXE) $(DESTDIR)$(PREFIX)/bin
+	install -d $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps
+	install -d $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps
+	install -m 644 assets/dmd5620.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps
+	install -m 644 assets/dmd5620.svg $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/$(EXE)
+	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps/dmd5620.png
+	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/dmd5620.svg
