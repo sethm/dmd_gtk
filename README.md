@@ -33,6 +33,13 @@ This will preserve the state of the NVRAM between runs.
 
 ## Changelog
 
+### Version 1.2.0
+
+* Upgraded to `libdmd_core` 0.6.3
+* Improved timing further (loading with 32ld works now)
+* Fixed build in CentOS. Should build cleanly on Fedora,
+  RedHat, Ubuntu, and Debian now.
+
 ### Version 1.1.0
 
 * Upgraded to `libdmd_core` 0.6.2
