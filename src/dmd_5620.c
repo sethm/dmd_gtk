@@ -392,7 +392,7 @@ dmd_cpu_thread(void *threadid)
     FILE *fp;
 
     sleep_time_req.tv_sec = 0;
-    sleep_time_req.tv_nsec = 1000000;
+    sleep_time_req.tv_nsec = 500000;
 
     dmd_reset();
 

@@ -1,7 +1,7 @@
 SRCDIR = src
 LIBDIR = lib
 CC = gcc
-CFLAGS = $(shell pkg-config --cflags gtk+-3.0) -Wall
+CFLAGS = $(shell pkg-config --cflags gtk+-3.0) -Wall -std=gnu99
 GTKLIBS = $(shell pkg-config --libs gtk+-3.0)
 EXE = dmd5620
 CSRC = $(wildcard src/*.c)
