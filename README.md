@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 1.1.0
+Version: 1.2.0
 
 This is an actively developed project.
 
