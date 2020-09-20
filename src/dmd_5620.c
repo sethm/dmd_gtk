@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <getopt.h>
 
 #include <signal.h>
 #include <stdio.h>
@@ -716,6 +717,13 @@ gtk_setup(int *argc, char ***argv)
     gtk_widget_show_all(main_window);
 }
 
+static struct option long_options[] = {
+    {"version", no_argument, 0, 'v'},
+    {"host", required_argument, 0, 'h'},
+    {"port", required_argument, 0, 'p'},
+    {0, 0, 0, 0}
+};
+
 int
 main(int argc, char *argv[])
 {
@@ -725,15 +733,21 @@ main(int argc, char *argv[])
     int portno;
     int rs;
 
-    snprintf(VERSION_STRING, 64, "%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
+    snprintf(VERSION_STRING, 64, "%d.%d.%d",
+             VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
 
     signal(SIGINT, int_handler);
 
     extern char *optarg;
     extern int optind, optopt;
 
-    while ((c = getopt(argc, argv, "vh:p:n:")) != -1) {
+    int option_index = 0;
+
+    while ((c = getopt_long(argc, argv, "vh:p:n:",
+                            long_options, &option_index)) != -1) {
         switch(c) {
+        case 0:
+            break;
         case 'v':
             printf("Version: %s\n", VERSION_STRING);
             exit(0);

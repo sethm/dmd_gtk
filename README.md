@@ -23,7 +23,7 @@ The terminal emulator uses the Telnet protocol to communicate with a
 remote host.
 
 ```
-dmd5620 -h <host> [-p <port>] [-n <nvram_file>] [-v] [-- <gtk-options> ...]
+dmd5620 -v | -h <host> [-p <port>] [-n <nvram_file>] [-- <gtk-options> ...]
 ```
 
 If not specified, `<port>` defaults to 23.
