@@ -1,3 +1,5 @@
 **/*.o
 lib/target
 dmd5620
+/.ccls
+/.ccls-cache
