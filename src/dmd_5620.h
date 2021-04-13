@@ -27,7 +27,9 @@
 #ifndef __DMD_5620_H__
 #define __DMD_5620_H__
 
-#include "libtelnet.h"
+#include <stdint.h>
+#include <gmodule.h>
+#include <gtk/gtk.h>
 
 #define WIDTH 800
 #define HEIGHT 1024
@@ -65,10 +67,7 @@ extern int dmd_get_nvram(uint8_t *buf);
 
 /* function prototypes */
 static void int_handler(int signal);
-static int tx_send(int sock, const char *buffer, size_t size);
-static void telnet_handler(telnet_t *telnet, telnet_event_t *ev, void *data);
-static int telnet_connect(char *host, char *port);
-static int telnet_disconnect();
+/* static int tx_send(int sock, const char *buffer, size_t size); */
 static void close_window();
 static gboolean configure_handler(GtkWidget *widget,
                                   GdkEventConfigure *event,

@@ -24,16 +24,17 @@
  * SOFTWARE.
  */
 
-#include <gtk/gtk.h>
-#include <gmodule.h>
-
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <poll.h>
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
+#include <pty.h>
+#include <stdlib.h>
+#include <utmp.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <getopt.h>
@@ -42,50 +43,36 @@
 #include <stdio.h>
 #include <math.h>
 #include <time.h>
-#include <stdint.h>
 #include <pthread.h>
+#include <termios.h>
 
 #include "version.h"
 #include "dmd_5620.h"
 
+#define PCHAR(p)   (((p) >= 0x20 && (p) < 0x7f) ? (p) : '.')
+
 static char VERSION_STRING[64];
 static GtkWidget *main_window;
-static char telnet_buf[90];
 static cairo_surface_t *surface = NULL;
 static GdkPixbuf *pixbuf = NULL;
 static pthread_t dmd_thread;
-static int sock = -1;
-static telnet_t *telnet;
-static GQueue *telnet_rx_queue;
+static int pty_master, pty_slave;
 static char *nvram = NULL;
 static uint8_t previous_vram[VIDRAM_SIZE];
-static volatile gboolean window_beep = FALSE;
-static volatile gboolean dmd_thread_run = TRUE;
-static volatile int sigint_count = 0;
-
-/* Implement a very dumb protocol. */
-static const telnet_telopt_t dmd_telopts[] = {
-    { TELNET_TELOPT_BINARY,    TELNET_WILL, TELNET_DO   },
-    { TELNET_TELOPT_SGA,       TELNET_WILL, TELNET_DO   },
-    { TELNET_TELOPT_ECHO,      TELNET_WILL, TELNET_DO   },
-    { TELNET_TELOPT_TTYPE,     TELNET_WILL, TELNET_DONT },
-    { TELNET_TELOPT_COMPRESS,  TELNET_WONT, TELNET_DONT },
-    { TELNET_TELOPT_COMPRESS2, TELNET_WONT, TELNET_DONT },
-    { TELNET_TELOPT_ZMP,       TELNET_WONT, TELNET_DONT },
-    { TELNET_TELOPT_MSSP,      TELNET_WONT, TELNET_DONT },
-    { -1, 0, 0}
-};
-
+static struct pollfd fds[2];
+static pid_t shell_pid;
+static int erase_is_delete = FALSE;
+static volatile int window_beep = FALSE;
+static volatile int dmd_thread_run = TRUE;
+static int sigint_count = 0;
 
 static void
-int_handler(int _signal)
+int_handler(int signal)
 {
     if (sigint_count) {
-        printf("Shutting down immediately. Good bye.\n");
-        exit(3);
+        fprintf(stderr, "Shutting down immediately. Good bye.\n");
+        exit(1);
     }
-
-    printf("\nAttempting to shut down cleanly...\n");
 
     if (main_window != NULL) {
         gtk_window_close(GTK_WINDOW(main_window));
@@ -93,126 +80,6 @@ int_handler(int _signal)
 
     sigint_count++;
 }
-
-static int
-tx_send(int sock, const char *buffer, size_t size)
-{
-    int rs;
-
-    while (size > 0) {
-        if ((rs = send(sock, buffer, size, 0)) == -1) {
-            fprintf(stderr, "send() failed: %s\n", strerror(errno));
-            return 1;
-        } else if (rs == 0) {
-            fprintf(stderr, "send() unexpectedly returned 0\n");
-            return 1;
-        }
-
-        /* update pointer and size to see if we've got more to send */
-        buffer += rs;
-        size -= rs;
-    }
-
-    return 0;
-}
-
-static void
-telnet_handler(telnet_t *telnet, telnet_event_t *ev, void *data)
-{
-    switch (ev->type) {
-    case TELNET_EV_DATA:
-        if (ev->data.size) {
-            for (int i = 0; i < ev->data.size; i++) {
-                g_queue_push_head(telnet_rx_queue,
-                                  GUINT_TO_POINTER(ev->data.buffer[i]));
-            }
-        }
-        break;
-    case TELNET_EV_SEND:
-        if (tx_send(sock, ev->data.buffer, ev->data.size) != 0) {
-            /* TODO: It's probably best to offer a clean shutdown and/or
-               retry here, somehow. */
-            fprintf(stderr, "ERROR: Could not send telnet buffer!\n");
-        }
-        break;
-    case TELNET_EV_TTYPE:
-        if (ev->ttype.cmd == TELNET_TTYPE_SEND) {
-            telnet_ttype_is(telnet, "dmd");
-        }
-        break;
-    default:
-        break;
-    }
-}
-
-static int
-telnet_connect(char *host, char *port)
-{
-    struct addrinfo *ai;
-    struct addrinfo hints;
-    struct sockaddr_in addr;
-    int flags;
-    int rs;
-
-    /* Look up the host */
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    if ((rs = getaddrinfo(host, port, &hints, &ai)) != 0) {
-        return -1;
-    }
-
-
-    /* Create the socket */
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock == -1) {
-        return -1;
-    }
-
-    /* Bind the server socket */
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
-        close(sock);
-        return -1;
-    }
-
-    /* Connect */
-    if (connect(sock, ai->ai_addr, ai->ai_addrlen) == -1) {
-        close(sock);
-        return -1;
-    }
-
-    /* Free up the looup info */
-    freeaddrinfo(ai);
-
-    /* Set non-blocking IO */
-    flags = fcntl(sock, F_GETFL, 0);
-    if (fcntl(sock, F_SETFL, flags | O_NONBLOCK)) {
-        close(sock);
-        return -1;
-    }
-
-    telnet = telnet_init(dmd_telopts, telnet_handler, 0, &sock);
-
-    return 0;
-}
-
-int
-telnet_disconnect()
-{
-    if (sock < 0) {
-        return -1;
-    }
-
-    telnet_free(telnet);
-    shutdown(sock, 2);
-    close(sock);
-    sock = -1;
-
-    return 0;
-}
-
 
 static void
 close_window()
@@ -235,7 +102,6 @@ close_window()
         cairo_surface_destroy(surface);
     }
 
-    telnet_disconnect();
     dmd_thread_run = 0;
     gtk_main_quit();
 }
@@ -385,12 +251,11 @@ dmd_cpu_thread(void *threadid)
 {
     struct timespec sleep_time_req, sleep_time_rem;
     int size;
-    ssize_t read_count;
-    uint8_t rxc;
     uint8_t txc, kbc;
     uint8_t nvram_buf[NVRAM_SIZE];
-    char tx_buf[1];
+    int b_read, i;
     FILE *fp;
+    char tx_buf[32];
 
     sleep_time_req.tv_sec = 0;
     sleep_time_req.tv_nsec = 500000;
@@ -425,62 +290,47 @@ dmd_cpu_thread(void *threadid)
     }
 
     while (dmd_thread_run) {
-        dmd_step_loop(1000);
+        dmd_step_loop(1500);
 
-        /* Poll the receive queue for input for the RS-232 line */
-        if (!g_queue_is_empty(telnet_rx_queue)) {
-            rxc = (uint8_t)(GPOINTER_TO_UINT(g_queue_pop_tail(telnet_rx_queue)));
-            dmd_rx_char(rxc);
+        if (poll(fds, 2, 100) > 0) {
+            if (fds[0].revents & POLLIN) {
+                b_read = read(pty_master, tx_buf, 32);
+
+                if (b_read <= 0) {
+                    perror("Nothing to read from child: ");
+                    exit(-1);
+                }
+
+                for (i = 0; i < b_read; i++) {
+                    dmd_rx_char(tx_buf[i]);
+                }
+            }
+
+            if (dmd_rs232_tx_poll(&txc) == 0) {
+                if (write(pty_master, &txc, 1) < 0) {
+                    perror("Child write failed: ");
+                    /* Should we give up here? */
+                    exit(-1);
+                }
+            }
         }
 
-        /* If a socket is available... */
-        if (sock >= 0) {
-
-            /* Poll for output for the RS-232 line */
-            if (dmd_rs232_tx_poll(&txc) == 0) {
-                tx_buf[0] = txc;
-                telnet_send(telnet, tx_buf, 1);
-            }
-
-            /* Poll for output for the keyboard */
-            if (dmd_kb_tx_poll(&kbc) == 0) {
-                if (kbc & 0x08) {
-                    /* Beep! For thread safety reasons, we don't
-                     * actually interct with GDK in this
-                     * thread. Instead, we set a flag telling
-                     * refresh_display to beep for us. */
-                    window_beep = TRUE;
-                }
-            }
-
-            /* Try to receive more data from Telnet */
-            read_count = recv(sock, telnet_buf, sizeof(telnet_buf), 0);
-
-            if (read_count < 0) {
-                if (errno == EAGAIN) {
-                    /* No worries, try again. */
-                } else {
-                    fprintf(stderr,
-                            "ERROR: Could not receive from "
-                            "telnet. Closing connection. "
-                            "rc=%ld err=%s\n",
-                            read_count,
-                            strerror(errno));
-                    telnet_disconnect();
-                    break;
-                }
-            } else {
-                telnet_recv(telnet, telnet_buf, read_count);
+        /* Poll for output for the keyboard */
+        if (dmd_kb_tx_poll(&kbc) == 0) {
+            if (kbc & 0x08) {
+                /* Beep! For thread safety reasons, we don't
+                 * actually interct with GDK in this
+                 * thread. Instead, we set a flag telling
+                 * refresh_display to beep for us. */
+                window_beep = TRUE;
             }
         }
 
         if (nanosleep(&sleep_time_req, &sleep_time_rem)) {
-            fprintf(stderr, "ERROR: Unable to idle.\n");
+            perror("Unable to idle: ");
             break;
         }
     }
-
-    g_queue_free(telnet_rx_queue);
 
     pthread_exit(NULL);
 }
@@ -545,6 +395,10 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
         c = 0xc4;
         break;
     case GDK_KEY_BackSpace:
+        if (erase_is_delete) {
+            c = 0x7f;
+            break;
+        }
     case GDK_KEY_Return:
     case GDK_KEY_Tab:
     case GDK_KEY_space:
@@ -718,47 +572,63 @@ gtk_setup(int *argc, char ***argv)
 }
 
 static struct option long_options[] = {
+    {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
-    {"host", required_argument, 0, 'h'},
-    {"port", required_argument, 0, 'p'},
-    {0, 0, 0, 0}
-};
+    {"delete", no_argument, 0, 'd'},
+    {"shell", required_argument, 0, 's'},
+    {"nvram", required_argument, 0, 'n'},
+    {0, 0, 0, 0}};
+
+void usage()
+{
+    printf("Usage: dmd5620 [-h] [-v] [-d] [-s shell] [-n nvram_file] [-- <gtk_options> ...]\n");
+    printf("AT&T DMD 5620 Terminal emulator.\n\n");
+    printf("-h, --help                display help and exit.\n");
+    printf("-v, --version             display version and exit.\n");
+    printf("-d, --delete              backspace sends ^? (DEL) instead of ^H\n");
+    printf("-s, --shell [shell]       execute [shell] instead of default user shell\n");
+    printf("-n, --nvram [file]        store nvram state in [file]\n");
+}
 
 int
 main(int argc, char *argv[])
 {
     int c, errflg = 0;
     long thread_id = 0;
-    char *host = NULL, *port = NULL;
-    int portno;
     int rs;
+    char pty_name[64];
+    char *user_shell = getenv("SHELL");
 
     snprintf(VERSION_STRING, 64, "%d.%d.%d",
              VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
 
     signal(SIGINT, int_handler);
+    signal(SIGCHLD, int_handler);
 
     extern char *optarg;
     extern int optind, optopt;
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "vh:p:n:",
+    while ((c = getopt_long(argc, argv, "vdh:n:s:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:
             break;
+        case 'h':
+            usage();
+            exit(0);
+        case 'd':
+            erase_is_delete = TRUE;
+            break;
         case 'v':
             printf("Version: %s\n", VERSION_STRING);
             exit(0);
-        case 'h':
-            host = optarg;
-            break;
-        case 'p':
-            port = optarg;
-            break;
         case 'n':
             nvram = optarg;
+            break;
+        case 's':
+            user_shell = optarg;
             break;
         case '?':
             fprintf(stderr, "Unrecognized option: -%c\n", optopt);
@@ -767,30 +637,61 @@ main(int argc, char *argv[])
         }
     }
 
-    if (errflg || host == NULL) {
-        fprintf(stderr, "Usage: dmd5620 [-v] -h host [-p port] [-n nvram_file] [-- <gtk_options> ...]\n");
-        exit(2);
+    if (errflg) {
+        usage();
+        exit(1);
     }
 
-    if (port == NULL) {
-        port = "23";
-    }
 
-    portno = atoi(port);
-
-    if (portno < 1 || portno > 65535) {
-        fprintf(stderr, "Port %d out of range (1..65535)\n", portno);
+    /* Set up our PTY */
+    if (openpty(&pty_master, &pty_slave, pty_name, NULL, NULL) < 0) {
+        perror("Could not open terminal pty: ");
         exit(-1);
     }
 
-    /* Initialize the telnet receive queue. */
-    telnet_rx_queue = g_queue_new();
+    /* Fork the shell process */
 
-    if ((rs = telnet_connect(host, port)) != 0) {
-        fprintf(stderr, "Unable to connect to %s:%s: %s\n",
-                host, port, strerror(errno));
+    fds[0].fd = pty_master;
+    fds[0].events = POLLIN;
+    fds[1].fd = pty_slave;
+    fds[1].events = POLLOUT;
+
+    shell_pid = fork();
+
+    if (shell_pid < 0) {
+        perror("Could not fork child shell: ");
         exit(-1);
+    } else if (shell_pid == 0) {
+        /* Child */
+        char *const env[] = {"TERM=dmd", NULL};
+        int retval;
+        close(pty_master);
+
+        setsid();
+
+        if (ioctl(pty_slave, TIOCSCTTY, NULL) == -1) {
+            perror("Ioctl erorr: ");
+            exit(-1);
+        }
+
+        dup2(pty_slave, 0);
+        dup2(pty_slave, 1);
+        dup2(pty_slave, 2);
+        close(pty_slave);
+        if (user_shell) {
+            retval = execle(user_shell, "-", NULL, env);
+        } else {
+            retval = execle("/bin/sh", "-", NULL, env);
+        }
+        /* Child process is now replaced, nothing beyond this point
+           will ever be reached unless there's an error. */
+        if (retval < 0) {
+            perror("Could not start shell process: ");
+            exit(-1);
+        }
     }
+
+    close(pty_slave);
 
     /* Set up the GTK app */
     gtk_setup(&argc, &argv);

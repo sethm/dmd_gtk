@@ -6,7 +6,7 @@ GTKLIBS = $(shell pkg-config --libs gtk+-3.0)
 EXE = dmd5620
 CSRC = $(wildcard src/*.c)
 OBJ = $(CSRC:.c=.o)
-LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl
+LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl -lutil
 CORELIB = $(LIBDIR)/libdmd_core.a
 
 ifeq ($(PREFIX),)
@@ -32,6 +32,8 @@ $(EXE): $(OBJ)
 install: $(EXE)
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(EXE) $(DESTDIR)$(PREFIX)/bin
+	install -d $(DESTDIR)$(PREFIX)/man/man1
+	install -m 644 dmd5620.man $(DESTDIR)$(PREFIX)/man/man1/dmd5620.1
 	install -d $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps
 	install -d $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps
 	install -m 644 assets/dmd5620.png $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps
@@ -41,3 +43,4 @@ uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(EXE)
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps/dmd5620.png
 	rm -f $(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/dmd5620.svg
+	rm -f $(DESTDIR)$(PREFIX)/man/man1/dmd5620.1

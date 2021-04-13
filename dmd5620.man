@@ -1,0 +1,32 @@
+.TH DMD5620 1
+.SH NAME
+dmd5620 \- AT&T DMD 5620 Terminal Emulator
+.SH SYNOPSIS
+.B dmd5620
+[\fB\--help\fR]
+[\fB\--version\fR]
+[\fB\--delete\fR]
+[\fB\--shell\fR \fISHELL\fR]
+[\fB\--nvram\fR \fIFILE\fR]
+.IR INPUT
+.SH DESCRIPTION
+.B dmd5620
+AT&T DMD 5620 Terminal emulator with support for XT layers protocol.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Displays help and exits.
+.TP
+.BR \-v ", " \-\-version
+Displays version and exits.
+.TP
+.BR \-d ", " \-\-delete
+Send a delete character ^? (0x7F hex) when the backspace key is pressed. By
+default, ^H (0x08 hex) is sent.
+.TP
+.BR \-s ", " \-\-shell " " \fISHELL\fR
+Execute the program \fISHELL\fR. By default, the user's default login shell is
+executed.
+.TP
+.BR \-n ", " \-\-nvram  " " \fIFILE\fR
+Store NVRAM state in file \fIFILE\fR. No default.
