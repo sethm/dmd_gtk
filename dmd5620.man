@@ -40,3 +40,28 @@ Terminal SETUP key
 .TP
 .BR SHIFT\+F9
 Terminal RESET key
+.SH USING SVR3 LAYERS
+One of the primary featuers of dmd5620 is support for the System V Release 3
+\fIlayers\fR program. Real DMD5620 terminals were hard-wired directly
+to hosts using serial ports, and have no notion of networks.
+.PP
+In order to use dmd5620 with a networked System V Release 3 over a network,
+either using \fItelnet\fR or \fIssh\fR, you must enable "encoding" on the
+terminal.
+.PP
+To enable encoding, first press F9 (the \fISETUP\fR key) and then select "Host
+Options", either with the mouse or by pressing F2. Next, select toggle
+"Encoding Off" to "Encoding On" either with the mouse or by pressing F3.
+.PP
+"Encoding" will ensure that telnet and SSH control characters are properly
+escaped.
+.SH KNOWN ISSUES
+.IP \(bu 3
+System V Release 3 \fIlayers\fR does not work when using Telnet to connect to a
+real or simulated 3B2 using AT&T/WINS TCP/IP. This can be worked around by
+connecting to a simulated serial port (e.g. Console, Contty, or PORTS)
+listening for Telnet connections.
+.IP \(bu 3
+Timing is not fully accurate, and can lead to dropped XT packets when
+using \fIlayers\fR on a simulated PORTS serial port.
+.RE
