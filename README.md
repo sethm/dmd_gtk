@@ -32,6 +32,15 @@ login shell will be executed.
 `nvram_file` is the name of a file in which to store the contents of NVRAM.
 This will preserve the state of the NVRAM between runs.
 
+## Key Map
+
+Certain keys are mapped to special DMD5620 function keys.
+
+* F1-F8 are mapped directly to terminal F1-F8
+* F9 is mapped to the DMD5620's SETUP key.
+* Shift+F9 is mapped to the terminal's RESET functionality. This can be used to
+  get out of any jams.
+
 ## Changelog
 
 ### Version 1.3.0

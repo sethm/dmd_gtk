@@ -30,3 +30,13 @@ executed.
 .TP
 .BR \-n ", " \-\-nvram  " " \fIFILE\fR
 Store NVRAM state in file \fIFILE\fR. No default.
+.SH KEYMAP
+.TP
+.BR F1\-F8
+Terminal F1 through F8 keys
+.TP
+.BR F9
+Terminal SETUP key
+.TP
+.BR SHIFT\+F9
+Terminal RESET key
