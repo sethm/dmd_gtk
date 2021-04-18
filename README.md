@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 1.2.0
+Version: 1.3.0
 
 This is an actively developed project.
 
@@ -23,15 +23,22 @@ The terminal emulator uses the Telnet protocol to communicate with a
 remote host.
 
 ```
-dmd5620 -v | -h <host> [-p <port>] [-n <nvram_file>] [-- <gtk-options> ...]
+dmd5620 -v | [-d] [-s <shell>] [-n <nvram_file>] [-- <gtk-options> ...]
 ```
 
-If not specified, `<port>` defaults to 23.
+`shell` is the shell to execute. If not specified, the user's default
+login shell will be executed.
 
 `nvram_file` is the name of a file in which to store the contents of NVRAM.
 This will preserve the state of the NVRAM between runs.
 
 ## Changelog
+
+### Version 1.3.0
+
+* Removed telnet support.
+* Added local shell execution.
+* Added man page.
 
 ### Version 1.2.0
 
@@ -58,12 +65,6 @@ This will preserve the state of the NVRAM between runs.
 
 * [dmd_core](https://github.com/sethm/dmd_core): DMD 5620 core
   implementation library, used by this project.
-
-## Acknowledgements
-
-* [libtelnet](https://github.com/seanmiddleditch/libtelnet): The
-  telnet library used by this project. It is in the public domain,
-  but I would like to thank the authors for making it available.
 
 ## License
 
