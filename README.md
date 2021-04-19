@@ -12,10 +12,23 @@ This is an actively developed project.
 
 The executable has the following dependencies:
 
+* Rust toolchain version 1.50 or later
 * GTK+ 3 (libgtk)
 * GDK Pixbuf 2 (libgdk-pixbuf)
 * Cairo 1.15+ (libcairo)
 * Glib 2 (libglib)
+
+## Building
+
+- Ensure that the Rust toolchain is installed. This is most easily done
+  using the `rustup` installation script. For more information, see
+  https://rustlang.org/ and https://rustup.rs/
+
+- Type `make`
+
+This new build process is still somewhat experimental. The Makefile
+attempts to ensure that the Git submodule `dmd_core` is updated and built,
+but this has not yet been widely tested.
 
 ## Usage
 

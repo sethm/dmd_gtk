@@ -1,13 +1,15 @@
 SRCDIR = src
-LIBDIR = lib
+LIBDIR = dmd_core
 CC = gcc
+GIT = git
+CARGO = cargo
 CFLAGS = $(shell pkg-config --cflags gtk+-3.0) -Wall -std=gnu99
 GTKLIBS = $(shell pkg-config --libs gtk+-3.0)
 EXE = dmd5620
 CSRC = $(wildcard src/*.c)
 OBJ = $(CSRC:.c=.o)
 LDFLAGS = $(GTKLIBS) -lm -lpthread -lc -ldl -lutil
-CORELIB = $(LIBDIR)/libdmd_core.a
+CORELIB = $(LIBDIR)/target/release/libdmd_core.a
 
 ifeq ($(PREFIX),)
 PREFIX := /usr/local
@@ -25,8 +27,14 @@ all: $(EXE)
 
 clean:
 	@rm -f $(EXE) $(OBJ)
+	@cd $(LIBDIR) && $(CARGO) clean
 
-$(EXE): $(OBJ)
+$(CORELIB):
+	$(GIT) submodule init
+	$(GIT) submodule update
+	cd $(LIBDIR) && $(CARGO) build --release
+
+$(EXE): $(OBJ) $(CORELIB)
 	$(CC) $(CFLAGS) -o $@ $^ $(CORELIB) $(LDFLAGS)
 
 install: $(EXE)

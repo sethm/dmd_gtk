@@ -1,0 +1,3 @@
+[submodule "dmd_core"]
+	path = dmd_core
+	url = git@github.com:sethm/dmd_core.git
