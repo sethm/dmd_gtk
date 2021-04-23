@@ -64,6 +64,8 @@ extern int dmd_mouse_down(uint8_t button);
 extern int dmd_mouse_up(uint8_t button);
 extern int dmd_set_nvram(uint8_t *buf);
 extern int dmd_get_nvram(uint8_t *buf);
+extern int dmd_trace_on(const char *file_name);
+extern int dmd_trace_off();
 
 /* function prototypes */
 static void int_handler(int signal);

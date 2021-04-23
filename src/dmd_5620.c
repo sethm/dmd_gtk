@@ -258,7 +258,7 @@ dmd_cpu_thread(void *threadid)
     char tx_buf[32];
 
     sleep_time_req.tv_sec = 0;
-    sleep_time_req.tv_nsec = 500000;
+    sleep_time_req.tv_nsec = 100000;
 
     dmd_reset();
 
@@ -290,7 +290,7 @@ dmd_cpu_thread(void *threadid)
     }
 
     while (dmd_thread_run) {
-        dmd_step_loop(1500);
+        dmd_step_loop(1000);
 
         if (poll(fds, 2, 100) > 0) {
             if (fds[0].revents & POLLIN) {
@@ -576,18 +576,21 @@ static struct option long_options[] = {
     {"version", no_argument, 0, 'v'},
     {"delete", no_argument, 0, 'd'},
     {"shell", required_argument, 0, 's'},
+    {"trace", required_argument, 0, 't'},
     {"nvram", required_argument, 0, 'n'},
     {0, 0, 0, 0}};
 
 void usage()
 {
-    printf("Usage: dmd5620 [-h] [-v] [-d] [-s shell] [-n nvram_file] [-- <gtk_options> ...]\n");
+    printf("Usage: dmd5620 [-h] [-v] [-d] [-t FILE] [-s SHELL] \\\n"
+           "               [-n FILE] [-- <gtk_options> ...]\n");
     printf("AT&T DMD 5620 Terminal emulator.\n\n");
     printf("-h, --help                display help and exit.\n");
     printf("-v, --version             display version and exit.\n");
     printf("-d, --delete              backspace sends ^? (DEL) instead of ^H\n");
-    printf("-s, --shell [shell]       execute [shell] instead of default user shell\n");
-    printf("-n, --nvram [file]        store nvram state in [file]\n");
+    printf("-t, --trace FILE          trace to FILE\n");
+    printf("-s, --shell SHELL         execute SHELL instead of default user shell\n");
+    printf("-n, --nvram FILE          store nvram state in FILE\n");
 }
 
 int
@@ -598,6 +601,7 @@ main(int argc, char *argv[])
     int rs;
     char pty_name[64];
     char *user_shell = getenv("SHELL");
+    char *trace_file = NULL;
 
     snprintf(VERSION_STRING, 64, "%d.%d.%d",
              VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
@@ -610,7 +614,7 @@ main(int argc, char *argv[])
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "vdh:n:s:",
+    while ((c = getopt_long(argc, argv, "vdh:n:t:s:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:
@@ -629,6 +633,9 @@ main(int argc, char *argv[])
             break;
         case 's':
             user_shell = optarg;
+            break;
+        case 't':
+            trace_file = optarg;
             break;
         case '?':
             fprintf(stderr, "Unrecognized option: -%c\n", optopt);
@@ -688,6 +695,13 @@ main(int argc, char *argv[])
         if (retval < 0) {
             perror("Could not start shell process: ");
             exit(-1);
+        }
+    }
+
+    if (trace_file != NULL) {
+        int result;
+        if ((result = dmd_trace_on(trace_file))) {
+            fprintf(stderr, "Error: Cannot open trace file: %d\n", result);
         }
     }
 
