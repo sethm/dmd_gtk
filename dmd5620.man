@@ -30,6 +30,10 @@ executed.
 .TP
 .BR \-n ", " \-\-nvram  " " \fIFILE\fR
 Store NVRAM state in file \fIFILE\fR. No default.
+.TP
+.BR \-t ", " \-\-trace  " " \fIFILE\fR
+Log verbose system execution trace to \fIFILE\fR. This can be extremely 
+expensive, and should be used with care!
 .SH KEYMAP
 .TP
 .BR F1\-F8
