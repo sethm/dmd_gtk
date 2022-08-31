@@ -25,6 +25,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <poll.h>
 #include <netdb.h>
@@ -50,6 +51,7 @@
 #include "dmd_5620.h"
 
 #define PCHAR(p)   (((p) >= 0x20 && (p) < 0x7f) ? (p) : '.')
+#define TX_BUF_LEN    64
 
 static char VERSION_STRING[64];
 static GtkWidget *main_window;
@@ -62,9 +64,13 @@ static uint8_t previous_vram[VIDRAM_SIZE];
 static struct pollfd fds[2];
 static pid_t shell_pid;
 static int erase_is_delete = FALSE;
+static int verbose = FALSE;
 static volatile int window_beep = FALSE;
 static volatile int dmd_thread_run = TRUE;
 static int sigint_count = 0;
+static const char *trace_file = NULL;
+static int trace_on = FALSE;
+static int tty_fd = -1;
 
 static void
 int_handler(int signal)
@@ -243,6 +249,199 @@ mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data)
     return TRUE;
 }
 
+static void
+pty_init(const char *shell)
+{
+    char pty_name[64];
+
+    /* Set up our PTY */
+    if (openpty(&pty_master, &pty_slave, pty_name, NULL, NULL) < 0) {
+        perror("Could not open terminal pty: ");
+        exit(-1);
+    }
+
+    /* Fork the shell process */
+
+    fds[0].fd = pty_master;
+    fds[0].events = POLLIN;
+    fds[1].fd = pty_slave;
+    fds[1].events = POLLOUT;
+
+    shell_pid = fork();
+
+    if (shell_pid < 0) {
+        perror("Could not fork child shell: ");
+        exit(-1);
+    } else if (shell_pid == 0) {
+        /* Child */
+        char *const env[] = {"TERM=dmd", NULL};
+        int retval;
+        close(pty_master);
+
+        setsid();
+
+        if (ioctl(pty_slave, TIOCSCTTY, NULL) == -1) {
+            perror("Ioctl erorr: ");
+            exit(-1);
+        }
+
+        dup2(pty_slave, 0);
+        dup2(pty_slave, 1);
+        dup2(pty_slave, 2);
+        close(pty_slave);
+
+        if (shell) {
+            retval = execle(shell, "-", NULL, env);
+        } else {
+            retval = execle("/bin/sh", "-", NULL, env);
+        }
+
+        /* Child process is now replaced, nothing beyond this point
+           will ever be reached unless there's an error. */
+        if (retval < 0) {
+            perror("Could not start shell process: ");
+            exit(-1);
+        }
+    }
+
+    close(pty_slave);
+}
+
+/*
+ * PTY implemntation of read and write polling
+ */
+static void
+pty_io_poll()
+{
+    uint8_t txc;
+    char tx_buf[TX_BUF_LEN];
+    int b_read, i;
+
+    if (poll(fds, 2, 100) > 0) {
+        if (fds[0].revents & POLLIN) {
+            b_read = read(pty_master, tx_buf, TX_BUF_LEN);
+
+            if (b_read <= 0) {
+                perror("Nothing to read from child: ");
+                exit(-1);
+            }
+
+            for (i = 0; i < b_read; i++) {
+                dmd_rx_char(tx_buf[i] & 0xff);
+                if (verbose) {
+                    printf("<--- PTY rx_char[%02d]: %02x %c\n", i, tx_buf[i] & 0xff, PCHAR(tx_buf[i]));
+                }
+            }
+        }
+    } else {
+        fprintf(stderr, "Nothing to poll!!\n");
+    }
+
+    i = 0;
+    while (dmd_rs232_tx_poll(&txc) == 0) {
+        if (verbose) {
+            printf("---> PTY tx_char[%02d]: %02x %c\n", i++, txc & 0xff, PCHAR(txc));
+        }
+        if (write(pty_master, &txc, 1) < 0) {
+            fprintf(stderr, "Error %d from write: %s\n", errno, strerror(errno));
+        }
+    }
+
+}
+
+/*
+ * Open and initialize a TTY device (e.g. "/dev/ttyS0", "/dev/pts/1", etc.)
+ */
+static int
+tty_init(int fd)
+{
+    struct termios tty;
+
+    if (tcgetattr(fd, &tty) != 0) {
+        fprintf(stderr, "error %d from tcgetattr", errno);
+        return -1;
+    }
+
+    fds[0].fd = fd;
+    fds[0].events = POLLIN;
+    fds[1].fd = fd;
+    fds[1].events = POLLOUT;
+
+    cfsetospeed(&tty, B9600);
+    cfsetispeed(&tty, B9600);
+
+    tty.c_cflag = (tty.c_cflag & ~CSIZE) | CS8;  /* 8-bit characters */
+    tty.c_iflag &= ~IGNBRK;                      /* No break */
+    tty.c_lflag = 0;
+    tty.c_oflag = 0;
+    tty.c_cc[VMIN] = 0;
+    tty.c_cc[VTIME] = 5;
+
+    tty.c_iflag &= ~(IXON | IXOFF | IXANY);
+    tty.c_cflag |= (CLOCAL | CREAD);
+
+    tty.c_cflag &= ~(PARENB | PARODD);
+    tty.c_cflag &= ~CSTOPB;
+    tty.c_cflag &= ~CRTSCTS;
+
+    if (tcsetattr (fd, TCSANOW, &tty) != 0) {
+        fprintf(stderr, "error %d from tcsetattr", errno);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void
+tty_io_poll()
+{
+    uint8_t txc;
+    char tx_buf[TX_BUF_LEN];
+    int b_read, i;
+
+    if (poll(fds, 2, 100) > 0) {
+        if (fds[0].revents & POLLIN) {
+
+            b_read = read(tty_fd, tx_buf, TX_BUF_LEN);
+
+            for (i = 0; i < b_read; i++) {
+                dmd_rx_char(tx_buf[i] & 0xff);
+                if (verbose) {
+                    printf("<--- TTY rx_char[%02d]: %02x %c\n", i, tx_buf[i] & 0xff, PCHAR(tx_buf[i]));
+                }
+            }
+        }
+    }
+
+    i = 0;
+    while (dmd_rs232_tx_poll(&txc) == 0) {
+        if (verbose) {
+            printf("---> TTY tx_char[%02d]: %02x %c\n", i++, txc & 0xff, PCHAR(txc));
+        }
+        if (write(tty_fd, &txc, 1) < 0) {
+            fprintf(stderr, "error %d during write: %s\n", errno, strerror(errno));
+        }
+    }
+}
+
+static void
+tty_set_blocking(int fd, int should_block)
+{
+    struct termios tty;
+    memset (&tty, 0, sizeof tty);
+    if (tcgetattr (fd, &tty) != 0)  {
+        fprintf(stderr, "error %d from tggetattr", errno);
+        return;
+    }
+
+    tty.c_cc[VMIN]  = should_block ? 1 : 0;
+    tty.c_cc[VTIME] = 5;            // 0.5 seconds read timeout
+
+    if (tcsetattr (fd, TCSANOW, &tty) != 0) {
+        fprintf(stderr, "error %d setting term attributes", errno);
+    }
+}
+
 /*
  * This is the main thread for stepping the DMD emulator.
  */
@@ -251,14 +450,12 @@ dmd_cpu_thread(void *threadid)
 {
     struct timespec sleep_time_req, sleep_time_rem;
     int size;
-    uint8_t txc, kbc;
+    uint8_t kbc;
     uint8_t nvram_buf[NVRAM_SIZE];
-    int b_read, i;
     FILE *fp;
-    char tx_buf[32];
 
     sleep_time_req.tv_sec = 0;
-    sleep_time_req.tv_nsec = 100000;
+    sleep_time_req.tv_nsec = 500000;
 
     dmd_reset();
 
@@ -290,29 +487,12 @@ dmd_cpu_thread(void *threadid)
     }
 
     while (dmd_thread_run) {
-        dmd_step_loop(1000);
+        dmd_step_loop(5000);
 
-        if (poll(fds, 2, 100) > 0) {
-            if (fds[0].revents & POLLIN) {
-                b_read = read(pty_master, tx_buf, 32);
-
-                if (b_read <= 0) {
-                    perror("Nothing to read from child: ");
-                    exit(-1);
-                }
-
-                for (i = 0; i < b_read; i++) {
-                    dmd_rx_char(tx_buf[i]);
-                }
-            }
-
-            if (dmd_rs232_tx_poll(&txc) == 0) {
-                if (write(pty_master, &txc, 1) < 0) {
-                    perror("Child write failed: ");
-                    /* Should we give up here? */
-                    exit(-1);
-                }
-            }
+        if (tty_fd < 0) {
+            pty_io_poll();
+        } else {
+            tty_io_poll();
         }
 
         /* Poll for output for the keyboard */
@@ -340,6 +520,7 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
     gboolean is_ctrl = event->state & GDK_CONTROL_MASK;
     gboolean is_shift = event->state & GDK_SHIFT_MASK;
+    int result;
 
     uint8_t c = 0;
 
@@ -375,6 +556,19 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
             c = 0x8e;
         } else {
             c = 0xae;
+        }
+        break;
+    case GDK_KEY_F10:
+        if (trace_file != NULL) {
+            if (trace_on) {
+                dmd_trace_off();
+                trace_on = FALSE;
+            } else {
+                if ((result = dmd_trace_on(trace_file))) {
+                    fprintf(stderr, "Error: Cannot open trace file: %d\n", result);
+                }
+                trace_on = TRUE;
+            }
         }
         break;
     case GDK_KEY_Escape:
@@ -574,21 +768,25 @@ gtk_setup(int *argc, char ***argv)
 static struct option long_options[] = {
     {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
-    {"delete", no_argument, 0, 'd'},
+    {"verbose", no_argument, 0, 'V'},
+    {"delete", no_argument, 0, 'D'},
     {"shell", required_argument, 0, 's'},
     {"trace", required_argument, 0, 't'},
+    {"device", required_argument, 0, 'd'},
     {"nvram", required_argument, 0, 'n'},
     {0, 0, 0, 0}};
 
 void usage()
 {
-    printf("Usage: dmd5620 [-h] [-v] [-d] [-t FILE] [-s SHELL] \\\n"
-           "               [-n FILE] [-- <gtk_options> ...]\n");
+    printf("Usage: dmd5620 [-h] [-v] [-V] [-D] [-d DEV|-s SHELL]\\\n"
+           "               [-t FILE] [-n FILE] [-- <gtk_options> ...]\n");
     printf("AT&T DMD 5620 Terminal emulator.\n\n");
-    printf("-h, --help                display help and exit.\n");
-    printf("-v, --version             display version and exit.\n");
-    printf("-d, --delete              backspace sends ^? (DEL) instead of ^H\n");
+    printf("-h, --help                display help and exit\n");
+    printf("-v, --version             display version and exit\n");
+    printf("-V, --verbose             display verbose output\n");
+    printf("-D, --delete              backspace sends ^? (DEL) instead of ^H\n");
     printf("-t, --trace FILE          trace to FILE\n");
+    printf("-d, --device DEV          serial port name\n");
     printf("-s, --shell SHELL         execute SHELL instead of default user shell\n");
     printf("-n, --nvram FILE          store nvram state in FILE\n");
 }
@@ -599,9 +797,9 @@ main(int argc, char *argv[])
     int c, errflg = 0;
     long thread_id = 0;
     int rs;
-    char pty_name[64];
-    char *user_shell = getenv("SHELL");
-    char *trace_file = NULL;
+    char *shell = NULL;
+    char *device = NULL;
+    struct stat sb;
 
     snprintf(VERSION_STRING, 64, "%d.%d.%d",
              VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
@@ -614,7 +812,7 @@ main(int argc, char *argv[])
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "vdh:n:t:s:",
+    while ((c = getopt_long(argc, argv, "vVdh:n:t:p:s:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:
@@ -628,14 +826,20 @@ main(int argc, char *argv[])
         case 'v':
             printf("Version: %s\n", VERSION_STRING);
             exit(0);
+        case 'V':
+            verbose = TRUE;
+            break;
         case 'n':
             nvram = optarg;
             break;
         case 's':
-            user_shell = optarg;
+            shell = optarg;
             break;
         case 't':
             trace_file = optarg;
+            break;
+        case 'p':
+            device = optarg;
             break;
         case '?':
             fprintf(stderr, "Unrecognized option: -%c\n", optopt);
@@ -649,63 +853,35 @@ main(int argc, char *argv[])
         exit(1);
     }
 
-
-    /* Set up our PTY */
-    if (openpty(&pty_master, &pty_slave, pty_name, NULL, NULL) < 0) {
-        perror("Could not open terminal pty: ");
-        exit(-1);
+    if (shell == NULL && device == NULL) {
+        fprintf(stderr, "Either --shell or --device is required.\n");
+        exit(1);
     }
 
-    /* Fork the shell process */
-
-    fds[0].fd = pty_master;
-    fds[0].events = POLLIN;
-    fds[1].fd = pty_slave;
-    fds[1].events = POLLOUT;
-
-    shell_pid = fork();
-
-    if (shell_pid < 0) {
-        perror("Could not fork child shell: ");
-        exit(-1);
-    } else if (shell_pid == 0) {
-        /* Child */
-        char *const env[] = {"TERM=dmd", NULL};
-        int retval;
-        close(pty_master);
-
-        setsid();
-
-        if (ioctl(pty_slave, TIOCSCTTY, NULL) == -1) {
-            perror("Ioctl erorr: ");
-            exit(-1);
-        }
-
-        dup2(pty_slave, 0);
-        dup2(pty_slave, 1);
-        dup2(pty_slave, 2);
-        close(pty_slave);
-        if (user_shell) {
-            retval = execle(user_shell, "-", NULL, env);
-        } else {
-            retval = execle("/bin/sh", "-", NULL, env);
-        }
-        /* Child process is now replaced, nothing beyond this point
-           will ever be reached unless there's an error. */
-        if (retval < 0) {
-            perror("Could not start shell process: ");
-            exit(-1);
-        }
+    if (shell != NULL &&  device != NULL) {
+        fprintf(stderr, "Cannot specify both --shell or --device. Only one is allowed.\n");
+        exit(1);
     }
 
-    if (trace_file != NULL) {
-        int result;
-        if ((result = dmd_trace_on(trace_file))) {
-            fprintf(stderr, "Error: Cannot open trace file: %d\n", result);
+    if (device == NULL) {
+        if (stat(shell, &sb) != 0 || (sb.st_mode & S_IXUSR) == 0) {
+            fprintf(stderr, "Cannot open %s as shell, or file is not executable.\n", shell);
+            exit(1);
         }
+        pty_init(shell);
+    } else {
+        if (stat(device, &sb) != 0) {
+            fprintf(stderr, "Cannot open device %s.\n", device);
+            exit(1);
+        }
+        tty_fd = open(device, O_RDWR|O_NOCTTY|O_SYNC);
+        if (tty_fd < 0) {
+            fprintf(stderr, "error %d opening %s: %s\n", errno, device, strerror(errno));
+            return -1;
+        }
+        tty_init(tty_fd);
+        tty_set_blocking(tty_fd, 0); /* No blocking */
     }
-
-    close(pty_slave);
 
     /* Set up the GTK app */
     gtk_setup(&argc, &argv);

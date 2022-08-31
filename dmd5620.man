@@ -5,10 +5,11 @@ dmd5620 \- AT&T DMD 5620 Terminal Emulator
 .B dmd5620
 [\fB\--help\fR]
 [\fB\--version\fR]
+[\fB\--verbose\fR]
 [\fB\--delete\fR]
-[\fB\--shell\fR \fISHELL\fR]
+[\fB\--shell\fR \fISHELL\fR|\fB\--device\fR \fIDEVICE\fR]
 [\fB\--nvram\fR \fIFILE\fR]
-.IR INPUT
+[\fB\--trace\fR \fIFILE\fR]
 .SH DESCRIPTION
 .B dmd5620
 AT&T DMD 5620 Terminal emulator with support for XT layers protocol.
@@ -20,20 +21,26 @@ Displays help and exits.
 .BR \-v ", " \-\-version
 Displays version and exits.
 .TP
-.BR \-d ", " \-\-delete
+.BR \-V ", " \-\-verbose
+Print verbose logging to stdout.
+.TP
+.BR \-D ", " \-\-delete
 Send a delete character ^? (0x7F hex) when the backspace key is pressed. By
 default, ^H (0x08 hex) is sent.
 .TP
 .BR \-s ", " \-\-shell " " \fISHELL\fR
-Execute the program \fISHELL\fR. By default, the user's default login shell is
-executed.
+Execute the program \fISHELL\fR, e.g. \"/bin/sh\". (Either
+\fB\-\-shell\fR or \fB\-\-device\fR is required)
+.TP
+.BR \-d ", " \-\-device " " \fIDEVICE\fR
+Connect to physical device \fIDEVICE\fR, e.g. "/dev/ttyS0" or
+"/dev/pts/1".
 .TP
 .BR \-n ", " \-\-nvram  " " \fIFILE\fR
 Store NVRAM state in file \fIFILE\fR. No default.
 .TP
 .BR \-t ", " \-\-trace  " " \fIFILE\fR
-Log verbose system execution trace to \fIFILE\fR. This can be extremely 
-expensive, and should be used with care!
+Allow logging verbose system execution trace to \fIFILE\fR.
 .SH KEYMAP
 .TP
 .BR F1\-F8
@@ -44,6 +51,27 @@ Terminal SETUP key
 .TP
 .BR SHIFT\+F9
 Terminal RESET key
+.TP
+.BR F10
+Enable or disable execution tracing, if the \fB\-\-trace\fR option has
+been used.
+.SH CONNECTING TO VIRTUAL SERIAL PORTS
+The \fB\-\-device\fR option can be used with \fBsocat\fR to set up a
+virtual serial port to a SIMH instance. For example:
+.P
+.EX
+$ socat -d -d pty,raw,echo=0 TCP:192.168.0.100:8888
+.EE
+.P
+This command on Linux will open a virtual serial port connected to
+\fB192.168.80.100\fR on port \fB8888\fR. The port device will be
+something like \fB/dev/pts/1\fR, and the \fB\-\-device\fR flag can
+then be used to connect to this virtual serial port.
+.SH TERMINAL EXECUTION TRACING
+The \fB\-\-trace\fR option allows verbose tracing of WE32100 CPU
+instructions to the specified file. Tracing is turned on or off by
+pressing the \fBF10\fR key. \fITracing execution is extremely expensive
+and should be used with care, it will degrade performance!\fR
 .SH USING SVR3 LAYERS
 One of the primary featuers of dmd5620 is support for the System V Release 3
 \fIlayers\fR program. Real DMD5620 terminals were hard-wired directly
