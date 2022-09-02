@@ -16,9 +16,14 @@ PREFIX := /usr/local
 endif
 
 ifdef DEBUG
-CFLAGS+ = -g -O0
+	CFLAGS+ = -g -O0
 else
-CFLAGS += -O3 -Os -s
+	UNAME_S := $(shell uname -s)
+	ifeq ($(UNAME_S),Darwin)
+		CFLAGS += -O3 -Os
+	else
+		CFLAGS += -O3 -Os -s
+	endif
 endif
 
 .PHONY: all clean

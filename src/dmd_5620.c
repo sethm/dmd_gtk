@@ -33,7 +33,13 @@
 #include <netinet/in.h>
 #include <string.h>
 #include <unistd.h>
+#if defined __APPLE__
+#include <util.h>
+#include <sys/ioctl.h>
+#include <sys/resource.h>
+#else
 #include <pty.h>
+#endif
 #include <stdlib.h>
 #include <utmp.h>
 #include <fcntl.h>
@@ -333,8 +339,6 @@ pty_io_poll()
                 }
             }
         }
-    } else {
-        fprintf(stderr, "Nothing to poll!!\n");
     }
 
     i = 0;
@@ -442,11 +446,15 @@ tty_set_blocking(int fd, int should_block)
     }
 }
 
+#ifdef __APPLE__
+
+#endif
+
 /*
  * This is the main thread for stepping the DMD emulator.
  */
 static void *
-dmd_cpu_thread(void *threadid)
+dmd_cpu_thread(void *thread_id)
 {
     struct timespec sleep_time_req, sleep_time_rem;
     int size;
@@ -795,7 +803,7 @@ int
 main(int argc, char *argv[])
 {
     int c, errflg = 0;
-    long thread_id = 0;
+    pthread_t thread_id = 0;
     int rs;
     char *shell = NULL;
     char *device = NULL;
