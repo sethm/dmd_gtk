@@ -44,8 +44,8 @@ struct color
     uint8_t a;
 };
 
-static const struct color COLOR_LIGHT = { 0, 255, 0, 255 };
-static const struct color COLOR_DARK = { 0, 0, 0, 255 };
+const struct color COLOR_LIGHT = { 0, 255, 0, 255 };
+const struct color COLOR_DARK = { 0, 0, 0, 255 };
 
 /* dmd_core exported functions */
 extern uint8_t *dmd_video_ram();
@@ -68,18 +68,20 @@ extern int dmd_trace_on(const char *file_name);
 extern int dmd_trace_off();
 
 /* function prototypes */
-static void int_handler(int signal);
-/* static int tx_send(int sock, const char *buffer, size_t size); */
-static void close_window();
-static gboolean configure_handler(GtkWidget *widget,
+void int_handler(int signal);
+/* int tx_send(int sock, const char *buffer, size_t size); */
+void close_window();
+void pty_io_poll();
+void tty_io_poll();
+gboolean configure_handler(GtkWidget *widget,
                                   GdkEventConfigure *event,
                                   gpointer data);
-static gboolean draw_handler(GtkWidget *widget, cairo_t *cr, gpointer data);
-static gboolean refresh_display(gpointer data);
-static gboolean mouse_moved(GtkWidget *widget, GdkEventMotion *event, gpointer data);
-static gboolean mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data);
-static void *dmd_cpu_thread(void *threadid);
-static gboolean keydown(GtkWidget *widget, GdkEventKey *event, gpointer data);
-static void gtk_setup(int *argc, char ***argv);
+gboolean simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data);
+gboolean refresh_display(GtkWidget *widget, gpointer data);
+gboolean draw_handler(GtkWidget *widget, cairo_t *cr, gpointer data);
+gboolean mouse_moved(GtkWidget *widget, GdkEventMotion *event, gpointer data);
+gboolean mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data);
+gboolean keydown(GtkWidget *widget, GdkEventKey *event, gpointer data);
+void gtk_setup(int *argc, char ***argv);
 
 #endif

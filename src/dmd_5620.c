@@ -56,29 +56,33 @@
 #include "version.h"
 #include "dmd_5620.h"
 
+#ifndef MIN
+#define MIN(a,b)    ((a) <= (b) ? (a) : (b))
+#endif
+
 #define PCHAR(p)   (((p) >= 0x20 && (p) < 0x7f) ? (p) : '.')
 #define TX_BUF_LEN    64
 
-static char VERSION_STRING[64];
-static GtkWidget *main_window;
-static cairo_surface_t *surface = NULL;
-static GdkPixbuf *pixbuf = NULL;
-static pthread_t dmd_thread;
-static int pty_master, pty_slave;
-static char *nvram = NULL;
-static uint8_t previous_vram[VIDRAM_SIZE];
-static struct pollfd fds[2];
-static pid_t shell_pid;
-static int erase_is_delete = FALSE;
-static int verbose = FALSE;
-static volatile int window_beep = FALSE;
-static volatile int dmd_thread_run = TRUE;
-static int sigint_count = 0;
-static const char *trace_file = NULL;
-static int trace_on = FALSE;
-static int tty_fd = -1;
+char VERSION_STRING[64];
+GtkWidget *main_window;
+cairo_surface_t *surface = NULL;
+GdkPixbuf *pixbuf = NULL;
+int pty_master, pty_slave;
+char *nvram = NULL;
+gint64 previous_clock = -1;
+uint8_t previous_vram[VIDRAM_SIZE];
+struct pollfd fds[2];
+pid_t shell_pid;
+int erase_is_delete = FALSE;
+int verbose = FALSE;
+volatile int window_beep = FALSE;
+volatile int dmd_thread_run = TRUE;
+int sigint_count = 0;
+const char *trace_file = NULL;
+int trace_on = FALSE;
+int tty_fd = -1;
 
-static void
+void
 int_handler(int signal)
 {
     if (sigint_count) {
@@ -93,7 +97,7 @@ int_handler(int signal)
     sigint_count++;
 }
 
-static void
+void
 close_window()
 {
     uint8_t buf[NVRAM_SIZE];
@@ -118,7 +122,7 @@ close_window()
     gtk_main_quit();
 }
 
-static gboolean
+gboolean
 configure_handler(GtkWidget *widget, GdkEventConfigure *event, gpointer data)
 {
     if (surface) {
@@ -135,7 +139,7 @@ configure_handler(GtkWidget *widget, GdkEventConfigure *event, gpointer data)
     return TRUE;
 }
 
-static gboolean
+gboolean
 draw_handler(GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_surface(cr, surface, 0, 0);
@@ -144,19 +148,16 @@ draw_handler(GtkWidget *widget, cairo_t *cr, gpointer data)
     return FALSE;
 }
 
-
-static gboolean
-refresh_display(gpointer data)
+gboolean
+refresh_display(GtkWidget *widget, gpointer data)
 {
     uint8_t oport;
-    GtkWidget *widget = (GtkWidget *)data;
-    GdkWindow *window = gtk_widget_get_window(widget);
+    GdkWindow *window;
     const struct color *fg_color;
     const struct color *bg_color;
 
-    if (widget == NULL || !GTK_IS_WIDGET(widget)) {
-        return FALSE;
-    }
+    /* Draw the frame */
+    window = gtk_widget_get_window(widget);
 
     if (window_beep) {
         gdk_window_beep(window);
@@ -225,7 +226,60 @@ refresh_display(gpointer data)
     return TRUE;
 }
 
-static gboolean
+gboolean
+simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
+{
+    uint8_t kbc;
+    gint64 now;
+    size_t steps;
+
+    /*
+     * Poll for simulator I/O
+     */
+    if (tty_fd < 0) {
+        pty_io_poll();
+    } else {
+        tty_io_poll();
+    }
+
+    /*
+     * Poll for output to the keyboard (i.e. system beep)
+     */
+    if (dmd_kb_tx_poll(&kbc) == 0) {
+        if (kbc & 0x08) {
+            /* Beep! For thread safety reasons, we don't
+             * actually interct with GDK in this
+             * thread. Instead, we set a flag telling
+             * refresh_display to beep for us. */
+            window_beep = TRUE;
+        }
+    }
+
+    /*
+     * Execute the appropriate number of CPU steps based on frame rate.
+     */
+    now = gdk_frame_clock_get_frame_time(clock);
+
+    if (previous_clock >= 0) {
+        /* We take 10 simulated steps per microsecond of wall clock
+         * time, based on a 10 MHz WE 32100 CPU */
+        steps = MIN(10 * (now - previous_clock), 10000000);
+    } else {
+        steps = 100000;
+    }
+
+    previous_clock = now;
+
+    /* Actually call the core CPU library */
+    dmd_step_loop(steps);
+
+    /* Now refresh the display */
+    return refresh_display(widget, data);
+
+    return TRUE;
+}
+
+gboolean
 mouse_moved(GtkWidget *widget, GdkEventMotion *event, gpointer data)
 {
     dmd_mouse_move((uint16_t) event->x, (uint16_t) (1024 - event->y));
@@ -233,7 +287,7 @@ mouse_moved(GtkWidget *widget, GdkEventMotion *event, gpointer data)
     return TRUE;
 }
 
-static gboolean
+gboolean
 mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data)
 {
     /* GDK mouse buttons are numbered 1,2,3, whereas the DMD
@@ -255,7 +309,10 @@ mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data)
     return TRUE;
 }
 
-static void
+/*
+ * Initialize a shell PTY
+ */
+void
 pty_init(const char *shell)
 {
     char pty_name[64];
@@ -316,14 +373,14 @@ pty_init(const char *shell)
 /*
  * PTY implemntation of read and write polling
  */
-static void
+void
 pty_io_poll()
 {
     uint8_t txc;
     char tx_buf[TX_BUF_LEN];
     int b_read, i;
 
-    if (poll(fds, 2, 100) > 0) {
+    if (poll(fds, 2, 0) > 0) {
         if (fds[0].revents & POLLIN) {
             b_read = read(pty_master, tx_buf, TX_BUF_LEN);
 
@@ -356,10 +413,12 @@ pty_io_poll()
 /*
  * Open and initialize a TTY device (e.g. "/dev/ttyS0", "/dev/pts/1", etc.)
  */
-static int
+int
 tty_init(int fd)
 {
     struct termios tty;
+
+    memset(&tty, 0, sizeof tty);
 
     if (tcgetattr(fd, &tty) != 0) {
         fprintf(stderr, "error %d from tcgetattr", errno);
@@ -379,7 +438,7 @@ tty_init(int fd)
     tty.c_lflag = 0;
     tty.c_oflag = 0;
     tty.c_cc[VMIN] = 0;
-    tty.c_cc[VTIME] = 5;
+    tty.c_cc[VTIME] = 0;
 
     tty.c_iflag &= ~(IXON | IXOFF | IXANY);
     tty.c_cflag |= (CLOCAL | CREAD);
@@ -396,7 +455,7 @@ tty_init(int fd)
     return 0;
 }
 
-static void
+void
 tty_io_poll()
 {
     uint8_t txc;
@@ -428,102 +487,12 @@ tty_io_poll()
     }
 }
 
-static void
+void
 tty_set_blocking(int fd, int should_block)
 {
-    struct termios tty;
-    memset (&tty, 0, sizeof tty);
-    if (tcgetattr (fd, &tty) != 0)  {
-        fprintf(stderr, "error %d from tggetattr", errno);
-        return;
-    }
-
-    tty.c_cc[VMIN]  = should_block ? 1 : 0;
-    tty.c_cc[VTIME] = 5;            // 0.5 seconds read timeout
-
-    if (tcsetattr (fd, TCSANOW, &tty) != 0) {
-        fprintf(stderr, "error %d setting term attributes", errno);
-    }
 }
 
-#ifdef __APPLE__
-
-#endif
-
-/*
- * This is the main thread for stepping the DMD emulator.
- */
-static void *
-dmd_cpu_thread(void *thread_id)
-{
-    struct timespec sleep_time_req, sleep_time_rem;
-    int size;
-    uint8_t kbc;
-    uint8_t nvram_buf[NVRAM_SIZE];
-    FILE *fp;
-
-    sleep_time_req.tv_sec = 0;
-    sleep_time_req.tv_nsec = 500000;
-
-    dmd_reset();
-
-    /* Load NVRAM, if any */
-    if (nvram != NULL) {
-        fp = fopen(nvram, "r");
-
-        /* If there's no file yet, don't load anything. */
-        if (fp != NULL) {
-            /* Validate the file size */
-            fseek(fp, 0, SEEK_END);
-            size = ftell(fp);
-            rewind(fp);
-
-            if (size != NVRAM_SIZE) {
-                fprintf(stderr,
-                        "NVRAM file %s does not seem to be valid. Skipping.\n",
-                        nvram);
-            } else {
-                if (fread(nvram_buf, NVRAM_SIZE, 1, fp) != 1) {
-                    fprintf(stderr,
-                            "Unable to read NVRAM file %s. Skipping.\n",
-                            nvram);
-                } else {
-                    dmd_set_nvram(nvram_buf);
-                }
-            }
-        }
-    }
-
-    while (dmd_thread_run) {
-        dmd_step_loop(5000);
-
-        if (tty_fd < 0) {
-            pty_io_poll();
-        } else {
-            tty_io_poll();
-        }
-
-        /* Poll for output for the keyboard */
-        if (dmd_kb_tx_poll(&kbc) == 0) {
-            if (kbc & 0x08) {
-                /* Beep! For thread safety reasons, we don't
-                 * actually interct with GDK in this
-                 * thread. Instead, we set a flag telling
-                 * refresh_display to beep for us. */
-                window_beep = TRUE;
-            }
-        }
-
-        if (nanosleep(&sleep_time_req, &sleep_time_rem)) {
-            perror("Unable to idle: ");
-            break;
-        }
-    }
-
-    pthread_exit(NULL);
-}
-
-static gboolean
+gboolean
 keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
     gboolean is_ctrl = event->state & GDK_CONTROL_MASK;
@@ -721,8 +690,7 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
     return TRUE;
 }
 
-/* Called on startup as a callback */
-static void
+void
 gtk_setup(int *argc, char ***argv)
 {
     GtkWidget *drawing_area;
@@ -744,8 +712,9 @@ gtk_setup(int *argc, char ***argv)
 
     gtk_container_add(GTK_CONTAINER(main_window), drawing_area);
 
-    /* Try for 30 fps */
-    g_timeout_add(33, refresh_display, drawing_area);
+    /* Set up the animation handler, which will step the simulation
+       and draw the display in an infinite loop */
+    gtk_widget_add_tick_callback(main_window, simulation_main_loop, drawing_area, NULL);
 
     /* Signals used to handle the backing surface */
     g_signal_connect(drawing_area, "draw",
@@ -773,7 +742,7 @@ gtk_setup(int *argc, char ***argv)
     gtk_widget_show_all(main_window);
 }
 
-static struct option long_options[] = {
+struct option long_options[] = {
     {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
     {"verbose", no_argument, 0, 'V'},
@@ -803,10 +772,11 @@ int
 main(int argc, char *argv[])
 {
     int c, errflg = 0;
-    pthread_t thread_id = 0;
-    int rs;
     char *shell = NULL;
     char *device = NULL;
+    int size;
+    uint8_t nvram_buf[NVRAM_SIZE];
+    FILE *fp;
     struct stat sb;
 
     snprintf(VERSION_STRING, 64, "%d.%d.%d",
@@ -828,7 +798,7 @@ main(int argc, char *argv[])
         case 'h':
             usage();
             exit(0);
-        case 'd':
+        case 'D':
             erase_is_delete = TRUE;
             break;
         case 'v':
@@ -846,7 +816,7 @@ main(int argc, char *argv[])
         case 't':
             trace_file = optarg;
             break;
-        case 'p':
+        case 'd':
             device = optarg;
             break;
         case '?':
@@ -888,24 +858,42 @@ main(int argc, char *argv[])
             return -1;
         }
         tty_init(tty_fd);
-        tty_set_blocking(tty_fd, 0); /* No blocking */
     }
 
-    /* Set up the GTK app */
+
+    /* Initialize the CPU */
+    dmd_reset();
+
+    /* Load NVRAM, if any */
+    if (nvram != NULL) {
+        fp = fopen(nvram, "r");
+
+        /* If there's no file yet, don't load anything. */
+        if (fp != NULL) {
+            /* Validate the file size */
+            fseek(fp, 0, SEEK_END);
+            size = ftell(fp);
+            rewind(fp);
+
+            if (size != NVRAM_SIZE) {
+                fprintf(stderr,
+                        "NVRAM file %s does not seem to be valid. Skipping.\n",
+                        nvram);
+            } else {
+                if (fread(nvram_buf, NVRAM_SIZE, 1, fp) != 1) {
+                    fprintf(stderr,
+                            "Unable to read NVRAM file %s. Skipping.\n",
+                            nvram);
+                } else {
+                    dmd_set_nvram(nvram_buf);
+                }
+            }
+        }
+    }
+
     gtk_setup(&argc, &argv);
 
-    if ((rs = pthread_create(&dmd_thread, NULL, dmd_cpu_thread, (void *)thread_id)) != 0) {
-        fprintf(stderr, "Could not create DMD cpu thread. Status=%d\n", rs);
-        exit(-1);
-    }
-
     gtk_main();
-
-    void *join_status;
-    if ((rs = pthread_join(dmd_thread, &join_status)) != 0) {
-        fprintf(stderr, "Could not join DMD cpu thread. Status=%d\n", rs);
-        exit(-1);
-    }
 
     return 0;
 }
