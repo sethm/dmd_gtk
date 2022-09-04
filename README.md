@@ -20,10 +20,11 @@ The executable has the following dependencies:
 
 ## Building
 
-- Ensure that the Rust toolchain is installed. This is most easily done
-  using the `rustup` installation script. For more information, see
+- Clone with `git clone --recursive` to make sure submodules are up to date,
+  *or* run `git submodule init; git submodule update`.
+- Ensure that the Rust toolchain is installed. This is most easily done using
+  the `rustup` installation script. For more information, see
   https://rustlang.org/ and https://rustup.rs/
-
 - Type `make`
 
 This new build process is still somewhat experimental. The Makefile
