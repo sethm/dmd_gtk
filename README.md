@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 1.3.0
+Version: 1.4.0
 
 This is an actively developed project.
 
@@ -12,7 +12,7 @@ This is an actively developed project.
 
 The executable has the following dependencies:
 
-* Rust toolchain version 1.50 or later
+* Rust toolchain version 1.50 or later (see: https://rustup.rs)
 * GTK+ 3 (libgtk)
 * GDK Pixbuf 2 (libgdk-pixbuf)
 * Cairo 1.15+ (libcairo)
@@ -51,10 +51,15 @@ Certain keys are mapped to special DMD5620 function keys.
 
 * F1-F8 are mapped directly to terminal F1-F8
 * F9 is mapped to the DMD5620's SETUP key.
-* Shift+F9 is mapped to the terminal's RESET functionality. This can be used to
-  get out of any jams.
+* Shift+F9 is mapped to the terminal's RESET functionality.
 
 ## Changelog
+
+### Version 1.4.0
+
+* Did away with multi-threaded execution and significantly improved timing.
+* Added support for attaching to physical and virtual serial ports.
+* Upgraded to `dmd_core` 0.6.4.
 
 ### Version 1.3.0
 
