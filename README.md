@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 1.4.0
+Version: 1.4.1
 
 This is an actively developed project.
 
@@ -32,18 +32,53 @@ but this has not yet been widely tested.
 
 ## Usage
 
-The terminal emulator uses the Telnet protocol to communicate with a
-remote host.
+### Running the Terminal
 
 ```
-dmd5620 -v | [-d] [-s <shell>] [-n <nvram_file>] [-- <gtk-options> ...]
+Usage: dmd5620 [-h] [-v] [-V] [-D] [-d DEV|-s SHELL]\
+               [-t FILE] [-n FILE] [-- <gtk_options> ...]
+AT&T DMD 5620 Terminal emulator.
+
+-h, --help                display help and exit
+-v, --version             display version and exit
+-V, --verbose             display verbose output
+-D, --delete              backspace sends ^? (DEL) instead of ^H
+-t, --trace FILE          trace to FILE
+-d, --device DEV          serial port name
+-s, --shell SHELL         execute SHELL instead of default user shell
+-n, --nvram FILE          store nvram state in FILE
 ```
 
-`shell` is the shell to execute. If not specified, the user's default
-login shell will be executed.
+- `--help` displays the help shown above, and exits.
+- `--version` displays the executable version number, and exits.
+- `--nvram FILE` causes terminal parameters stored in non-volatile memory
+   to be persisted to `FILE`.
+- `--shell SHELL` will execute the specified shell (e.g. "/bin/sh")
+- `--device DEV` will attach the terminal to the specified physical or 
+   virtual serial device (e.g. "/dev/ttyS0")
+- `--delete` will cause the terminal to send the DELETE character (`^?`)
+   instead of BACKSPACE (`^H`) when the backspace key is pressed.
+- `--trace FILE` allows optional and *extremely verbose* trace logging
+   to the supplied file. Tracing is turned on and off by pressing `F10`.
+- `--verbose` causes each character received or transmitted to be
+   printed to stdout. Useful for debugging.
 
-`nvram_file` is the name of a file in which to store the contents of NVRAM.
-This will preserve the state of the NVRAM between runs.
+Example usage:
+
+```
+$ dmd5620 --nvram ~/.dmd5620_nvram --shell /bin/sh
+$ dmd5620 -D --nvram ~/.dmd5620_nvram --device /dev/ttyS0
+```
+
+### Configuration
+
+All configuration of the terminal is done by pressing the `F9` key, which shows
+a series of menu buttons at the bottom of the screen. These buttons reveal
+menus that allow you to set the baud rate, reverse the video colors, turn on
+and off the bell, and so forth.
+
+Full documentation is available here: [https://archives.loomcom.com/3b2/documents/DMD_Terminal/](https://archives.loomcom.com/3b2/documents/DMD_Terminal/)
+
 
 ## Key Map
 
@@ -55,7 +90,7 @@ Certain keys are mapped to special DMD5620 function keys.
 
 ## Changelog
 
-### Version 1.4.0
+### Version 1.4.1
 
 * Did away with multi-threaded execution and significantly improved timing.
 * Added support for attaching to physical and virtual serial ports.
