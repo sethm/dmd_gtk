@@ -78,8 +78,6 @@ int verbose = FALSE;
 volatile int window_beep = FALSE;
 volatile int dmd_thread_run = TRUE;
 int sigint_count = 0;
-const char *trace_file = NULL;
-int trace_on = FALSE;
 int tty_fd = -1;
 
 void
@@ -245,7 +243,7 @@ simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
     /*
      * Poll for output to the keyboard (i.e. system beep)
      */
-    if (dmd_kb_tx_poll(&kbc) == 0) {
+    if (dmd_keyboard_tx(&kbc) == 0) {
         if (kbc & 0x08) {
             /* Beep! For thread safety reasons, we don't
              * actually interct with GDK in this
@@ -390,7 +388,7 @@ pty_io_poll()
             }
 
             for (i = 0; i < b_read; i++) {
-                dmd_rx_char(tx_buf[i] & 0xff);
+                dmd_rs232_rx(tx_buf[i] & 0xff);
                 if (verbose) {
                     printf("<--- PTY rx_char[%02d]: %02x %c\n", i, tx_buf[i] & 0xff, PCHAR(tx_buf[i]));
                 }
@@ -399,7 +397,7 @@ pty_io_poll()
     }
 
     i = 0;
-    while (dmd_rs232_tx_poll(&txc) == 0) {
+    while (dmd_rs232_tx(&txc) == 0) {
         if (verbose) {
             printf("---> PTY tx_char[%02d]: %02x %c\n", i++, txc & 0xff, PCHAR(txc));
         }
@@ -468,7 +466,7 @@ tty_io_poll()
             b_read = read(tty_fd, tx_buf, TX_BUF_LEN);
 
             for (i = 0; i < b_read; i++) {
-                dmd_rx_char(tx_buf[i] & 0xff);
+                dmd_rs232_rx(tx_buf[i] & 0xff);
                 if (verbose) {
                     printf("<--- TTY rx_char[%02d]: %02x %c\n", i, tx_buf[i] & 0xff, PCHAR(tx_buf[i]));
                 }
@@ -477,7 +475,7 @@ tty_io_poll()
     }
 
     i = 0;
-    while (dmd_rs232_tx_poll(&txc) == 0) {
+    while (dmd_rs232_tx(&txc) == 0) {
         if (verbose) {
             printf("---> TTY tx_char[%02d]: %02x %c\n", i++, txc & 0xff, PCHAR(txc));
         }
@@ -497,7 +495,6 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
     gboolean is_ctrl = event->state & GDK_CONTROL_MASK;
     gboolean is_shift = event->state & GDK_SHIFT_MASK;
-    int result;
 
     uint8_t c = 0;
 
@@ -535,43 +532,37 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
             c = 0xae;
         }
         break;
-    case GDK_KEY_F10:
-        if (trace_file != NULL) {
-            if (trace_on) {
-                dmd_trace_off();
-                trace_on = FALSE;
-            } else {
-                if ((result = dmd_trace_on(trace_file))) {
-                    fprintf(stderr, "Error: Cannot open trace file: %d\n", result);
-                }
-                trace_on = TRUE;
-            }
-        }
-        break;
     case GDK_KEY_Escape:
         c = 0x1b;
         break;
     case GDK_KEY_Delete:
         c = 0xfe;
         break;
-    case GDK_KEY_Down:
-        c = 0x90;
-        break;
+    case GDK_KEY_uparrow:
     case GDK_KEY_Up:
-        c = 0x92;
+        c = 0xc1;
+        break;
+    case GDK_KEY_downarrow:
+    case GDK_KEY_Down:
+        c = 0xc2;
+        break;
+    case GDK_KEY_rightarrow:
     case GDK_KEY_Right:
         c = 0xc3;
         break;
+    case GDK_KEY_leftarrow:
     case GDK_KEY_Left:
         c = 0xc4;
         break;
     case GDK_KEY_BackSpace:
-        if (erase_is_delete) {
-            c = 0x7f;
-            break;
-        }
+        c = 0xd1;
+        break;
     case GDK_KEY_Return:
+        c = 0xe7;
+        break;
     case GDK_KEY_Tab:
+        c = 0xd0;
+        break;
     case GDK_KEY_space:
     case GDK_KEY_exclam:
     case GDK_KEY_quotedbl:
@@ -685,7 +676,7 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
         return TRUE;
     }
 
-    dmd_rx_keyboard(c);
+    dmd_keyboard_rx(c);
 
     return TRUE;
 }
@@ -747,22 +738,22 @@ struct option long_options[] = {
     {"version", no_argument, 0, 'v'},
     {"verbose", no_argument, 0, 'V'},
     {"delete", no_argument, 0, 'D'},
+    {"firmware", required_argument, 0, 'f'},
     {"shell", required_argument, 0, 's'},
-    {"trace", required_argument, 0, 't'},
     {"device", required_argument, 0, 'd'},
     {"nvram", required_argument, 0, 'n'},
     {0, 0, 0, 0}};
 
 void usage()
 {
-    printf("Usage: dmd5620 [-h] [-v] [-V] [-D] [-d DEV|-s SHELL]\\\n"
+    printf("Usage: dmd5620 [-h] [-v] [-V] [-D] [-f 1|2] [-d DEV|-s SHELL] \\\n"
            "               [-t FILE] [-n FILE] [-- <gtk_options> ...]\n");
     printf("AT&T DMD 5620 Terminal emulator.\n\n");
     printf("-h, --help                display help and exit\n");
     printf("-v, --version             display version and exit\n");
+    printf("-f, --firmware VER        Firmware version 1 or 2\n");
     printf("-V, --verbose             display verbose output\n");
     printf("-D, --delete              backspace sends ^? (DEL) instead of ^H\n");
-    printf("-t, --trace FILE          trace to FILE\n");
     printf("-d, --device DEV          serial port name\n");
     printf("-s, --shell SHELL         execute SHELL instead of default user shell\n");
     printf("-n, --nvram FILE          store nvram state in FILE\n");
@@ -775,6 +766,7 @@ main(int argc, char *argv[])
     char *shell = NULL;
     char *device = NULL;
     int size;
+    int firmware_version = DEFAULT_FIRMWARE_VERSION;
     uint8_t nvram_buf[NVRAM_SIZE];
     FILE *fp;
     struct stat sb;
@@ -790,7 +782,7 @@ main(int argc, char *argv[])
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "vVdh:n:t:p:s:",
+    while ((c = getopt_long(argc, argv, "vVdh:n:t:p:s:f:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:
@@ -813,11 +805,11 @@ main(int argc, char *argv[])
         case 's':
             shell = optarg;
             break;
-        case 't':
-            trace_file = optarg;
-            break;
         case 'd':
             device = optarg;
+            break;
+        case 'f':
+            firmware_version = atoi(optarg);
             break;
         case '?':
             fprintf(stderr, "Unrecognized option: -%c\n", optopt);
@@ -828,23 +820,23 @@ main(int argc, char *argv[])
 
     if (errflg) {
         usage();
-        exit(1);
+        return -1;
     }
 
     if (shell == NULL && device == NULL) {
         fprintf(stderr, "Either --shell or --device is required.\n");
-        exit(1);
+        return -1;
     }
 
     if (shell != NULL &&  device != NULL) {
         fprintf(stderr, "Cannot specify both --shell or --device. Only one is allowed.\n");
-        exit(1);
+        return -1;
     }
 
     if (device == NULL) {
         if (stat(shell, &sb) != 0 || (sb.st_mode & S_IXUSR) == 0) {
             fprintf(stderr, "Cannot open %s as shell, or file is not executable.\n", shell);
-            exit(1);
+            return -1;
         }
         pty_init(shell);
     } else {
@@ -860,9 +852,13 @@ main(int argc, char *argv[])
         tty_init(tty_fd);
     }
 
+    if (firmware_version != 1 && firmware_version != 2) {
+        fprintf(stderr, "--firmware must be one of either '1' or '2'\n");
+        return -1;
+    }
 
     /* Initialize the CPU */
-    dmd_reset();
+    dmd_init(firmware_version);
 
     /* Load NVRAM, if any */
     if (nvram != NULL) {

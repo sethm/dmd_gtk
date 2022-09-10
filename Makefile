@@ -35,12 +35,11 @@ clean:
 	@cd $(LIBDIR) && $(CARGO) clean
 
 $(CORELIB):
-	$(GIT) submodule init
-	$(GIT) submodule update
-	cd $(LIBDIR) && $(CARGO) build --release
+	$(if $(wildcard ./dmd_core/Cargo.toml),,$(error The submodule dmd_core is not checked out.))
+	@cd $(LIBDIR) && $(CARGO) build --release
 
-$(EXE): $(OBJ) $(CORELIB)
-	$(CC) $(CFLAGS) -o $@ $^ $(CORELIB) $(LDFLAGS)
+$(EXE): $(CORELIB) $(OBJ)
+	@$(CC) $(CFLAGS) -o $@ $^ $(CORELIB) $(LDFLAGS)
 
 install: $(EXE)
 	install -d $(DESTDIR)$(PREFIX)/bin

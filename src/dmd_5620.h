@@ -35,6 +35,7 @@
 #define HEIGHT 1024
 #define NVRAM_SIZE 2<<12
 #define VIDRAM_SIZE 1024 * 100
+#define DEFAULT_FIRMWARE_VERSION 2
 
 struct color
 {
@@ -49,23 +50,21 @@ const struct color COLOR_DARK = { 0, 0, 0, 255 };
 
 /* dmd_core exported functions */
 extern uint8_t *dmd_video_ram();
-extern int dmd_reset();
+extern int dmd_init(uint8_t version);
 extern int dmd_step();
 extern int dmd_step_loop(size_t steps);
 extern int dmd_get_pc(uint32_t *pc);
 extern int dmd_get_register(uint8_t reg, uint32_t *val);
 extern int dmd_get_duart_output_port(uint8_t *val);
-extern int dmd_rx_char(uint8_t c);
-extern int dmd_rx_keyboard(uint8_t c);
-extern int dmd_rs232_tx_poll(uint8_t *c);
-extern int dmd_kb_tx_poll(uint8_t *c);
+extern int dmd_rs232_rx(uint8_t c);
+extern int dmd_keyboard_rx(uint8_t c);
+extern int dmd_rs232_tx(uint8_t *c);
+extern int dmd_keyboard_tx(uint8_t *c);
 extern int dmd_mouse_move(uint16_t x, uint16_t y);
 extern int dmd_mouse_down(uint8_t button);
 extern int dmd_mouse_up(uint8_t button);
 extern int dmd_set_nvram(uint8_t *buf);
 extern int dmd_get_nvram(uint8_t *buf);
-extern int dmd_trace_on(const char *file_name);
-extern int dmd_trace_off();
 
 /* function prototypes */
 void int_handler(int signal);
