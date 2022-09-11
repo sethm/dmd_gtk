@@ -73,8 +73,6 @@ gint64 previous_clock = -1;
 uint8_t previous_vram[VIDRAM_SIZE];
 struct pollfd fds[2];
 pid_t shell_pid;
-int erase_is_delete = FALSE;
-int verbose = FALSE;
 volatile int window_beep = FALSE;
 volatile int dmd_thread_run = TRUE;
 int sigint_count = 0;
@@ -389,18 +387,12 @@ pty_io_poll()
 
             for (i = 0; i < b_read; i++) {
                 dmd_rs232_rx(tx_buf[i] & 0xff);
-                if (verbose) {
-                    printf("<--- PTY rx_char[%02d]: %02x %c\n", i, tx_buf[i] & 0xff, PCHAR(tx_buf[i]));
-                }
             }
         }
     }
 
     i = 0;
     while (dmd_rs232_tx(&txc) == 0) {
-        if (verbose) {
-            printf("---> PTY tx_char[%02d]: %02x %c\n", i++, txc & 0xff, PCHAR(txc));
-        }
         if (write(pty_master, &txc, 1) < 0) {
             fprintf(stderr, "Error %d from write: %s\n", errno, strerror(errno));
         }
@@ -467,18 +459,12 @@ tty_io_poll()
 
             for (i = 0; i < b_read; i++) {
                 dmd_rs232_rx(tx_buf[i] & 0xff);
-                if (verbose) {
-                    printf("<--- TTY rx_char[%02d]: %02x %c\n", i, tx_buf[i] & 0xff, PCHAR(tx_buf[i]));
-                }
             }
         }
     }
 
     i = 0;
     while (dmd_rs232_tx(&txc) == 0) {
-        if (verbose) {
-            printf("---> TTY tx_char[%02d]: %02x %c\n", i++, txc & 0xff, PCHAR(txc));
-        }
         if (write(tty_fd, &txc, 1) < 0) {
             fprintf(stderr, "error %d during write: %s\n", errno, strerror(errno));
         }
@@ -701,6 +687,8 @@ gtk_setup(int *argc, char ***argv)
 
     gtk_widget_set_size_request(drawing_area, 800, 1024);
 
+    gtk_window_set_resizable(GTK_WINDOW(main_window), FALSE);
+
     gtk_container_add(GTK_CONTAINER(main_window), drawing_area);
 
     /* Set up the animation handler, which will step the simulation
@@ -736,7 +724,6 @@ gtk_setup(int *argc, char ***argv)
 struct option long_options[] = {
     {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
-    {"verbose", no_argument, 0, 'V'},
     {"delete", no_argument, 0, 'D'},
     {"firmware", required_argument, 0, 'f'},
     {"shell", required_argument, 0, 's'},
@@ -752,12 +739,14 @@ void usage()
     printf("-h, --help                display help and exit\n");
     printf("-v, --version             display version and exit\n");
     printf("-f, --firmware VER        Firmware version 1 or 2\n");
-    printf("-V, --verbose             display verbose output\n");
     printf("-D, --delete              backspace sends ^? (DEL) instead of ^H\n");
     printf("-d, --device DEV          serial port name\n");
     printf("-s, --shell SHELL         execute SHELL instead of default user shell\n");
     printf("-n, --nvram FILE          store nvram state in FILE\n");
 }
+
+const char *FIRMWARE_873 = "8;7;3";
+const char *FIRMWARE_875 = "8;7;5";
 
 int
 main(int argc, char *argv[])
@@ -765,8 +754,8 @@ main(int argc, char *argv[])
     int c, errflg = 0;
     char *shell = NULL;
     char *device = NULL;
+    char *firmware = NULL;
     int size;
-    int firmware_version = DEFAULT_FIRMWARE_VERSION;
     uint8_t nvram_buf[NVRAM_SIZE];
     FILE *fp;
     struct stat sb;
@@ -790,15 +779,9 @@ main(int argc, char *argv[])
         case 'h':
             usage();
             exit(0);
-        case 'D':
-            erase_is_delete = TRUE;
-            break;
         case 'v':
             printf("Version: %s\n", VERSION_STRING);
             exit(0);
-        case 'V':
-            verbose = TRUE;
-            break;
         case 'n':
             nvram = optarg;
             break;
@@ -809,7 +792,7 @@ main(int argc, char *argv[])
             device = optarg;
             break;
         case 'f':
-            firmware_version = atoi(optarg);
+            firmware = optarg;
             break;
         case '?':
             fprintf(stderr, "Unrecognized option: -%c\n", optopt);
@@ -852,13 +835,16 @@ main(int argc, char *argv[])
         tty_init(tty_fd);
     }
 
-    if (firmware_version != 1 && firmware_version != 2) {
-        fprintf(stderr, "--firmware must be one of either '1' or '2'\n");
+    /* Initialize the CPU */
+    if (firmware == NULL || strncmp(FIRMWARE_875, firmware, 5) == 0) {
+        dmd_init(2);
+    } else if (strncmp(FIRMWARE_873, firmware, 5) == 0) {
+        dmd_init(1);
+    } else {
+        fprintf(stderr, "--firmware must be one of either \"%s\" or \"%s\".\n",
+                FIRMWARE_873, FIRMWARE_875);
         return -1;
     }
-
-    /* Initialize the CPU */
-    dmd_init(firmware_version);
 
     /* Load NVRAM, if any */
     if (nvram != NULL) {

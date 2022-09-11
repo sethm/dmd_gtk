@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 1.4.1
+Version: 2.0.0
 
 This is an actively developed project.
 
@@ -42,8 +42,6 @@ AT&T DMD 5620 Terminal emulator.
 
 -h, --help                display help and exit
 -v, --version             display version and exit
--V, --verbose             display verbose output
--D, --delete              backspace sends ^? (DEL) instead of ^H
 -t, --trace FILE          trace to FILE
 -d, --device DEV          serial port name
 -s, --shell SHELL         execute SHELL instead of default user shell
