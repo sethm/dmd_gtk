@@ -724,7 +724,6 @@ gtk_setup(int *argc, char ***argv)
 struct option long_options[] = {
     {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
-    {"delete", no_argument, 0, 'D'},
     {"firmware", required_argument, 0, 'f'},
     {"shell", required_argument, 0, 's'},
     {"device", required_argument, 0, 'd'},
@@ -733,16 +732,15 @@ struct option long_options[] = {
 
 void usage()
 {
-    printf("Usage: dmd5620 [-h] [-v] [-V] [-D] [-f 1|2] [-d DEV|-s SHELL] \\\n"
-           "               [-t FILE] [-n FILE] [-- <gtk_options> ...]\n");
+    printf("Usage: dmd5620 [-h] [-v] [-d DEV|-s SHELL] \\\n"
+           "               [-f VER] [-n FILE] [-- <gtk_options> ...]\n");
     printf("AT&T DMD 5620 Terminal emulator.\n\n");
-    printf("-h, --help                display help and exit\n");
-    printf("-v, --version             display version and exit\n");
-    printf("-f, --firmware VER        Firmware version 1 or 2\n");
-    printf("-D, --delete              backspace sends ^? (DEL) instead of ^H\n");
-    printf("-d, --device DEV          serial port name\n");
-    printf("-s, --shell SHELL         execute SHELL instead of default user shell\n");
-    printf("-n, --nvram FILE          store nvram state in FILE\n");
+    printf("-h, --help              display help and exit\n");
+    printf("-v, --version           display version and exit\n");
+    printf("-f, --firmware VER      Firmware version (\"8;7;3\" or \"8;7;5\")\n");
+    printf("-d, --device DEV        serial port name\n");
+    printf("-s, --shell SHELL       execute SHELL instead of default user shell\n");
+    printf("-n, --nvram FILE        store nvram state in FILE\n");
 }
 
 const char *FIRMWARE_873 = "8;7;3";
@@ -771,7 +769,7 @@ main(int argc, char *argv[])
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "vVdh:n:t:p:s:f:",
+    while ((c = getopt_long(argc, argv, "vhd:n:t:p:s:f:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:

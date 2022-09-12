@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 2.0.0
+Version: 2.0.1
 
 This is an actively developed project.
 
@@ -32,29 +32,29 @@ The executable has the following dependencies:
 ### Running the Terminal
 
 ```
-Usage: dmd5620 [-h] [-v] [-d DEV | -s SHELL] \
-               [-n FILE] [-f VER] [-- <gtk_options> ...]
+Usage: dmd5620 [-h] [-v] [-d DEV|-s SHELL] \
+               [-f VER] [-n FILE] [-- <gtk_options> ...]
 AT&T DMD 5620 Terminal emulator.
 
--h, --help                display help and exit
--v, --version             display version and exit
--s, --shell SHELL         execute SHELL instead of default user shell
--d, --device DEV          serial port name
--n, --nvram FILE          store nvram state in FILE
--f, --firmware VER        use firmware version ("8;7;3" or "8;7;5")
+-h, --help              display help and exit
+-v, --version           display version and exit
+-f, --firmware VER      Firmware version ("8;7;3" or "8;7;5")
+-d, --device DEV        serial port name
+-s, --shell SHELL       execute SHELL instead of default user shell
+-n, --nvram FILE        store nvram state in FILE
 ```
 
 - `--help` displays the help shown above, and exits.
 - `--version` displays the executable version number, and exits.
-- `--nvram FILE` causes terminal parameters stored in non-volatile memory
-   to be persisted to `FILE`.
-- `--shell SHELL` will execute the specified shell (e.g. "/bin/sh")
-- `--device DEV` will attach the terminal to the specified physical or 
-   virtual serial device (e.g. "/dev/ttyS0")
 - `--firmware VER` selects the firmware version to use. Older DMD
    terminals used firmware version "8;7;3". Newer terminals used firmware
    version "8;7;5". The version must be specified as a string, and is
    "8;7;5" by default.
+- `--device DEV` will attach the terminal to the specified physical or 
+   virtual serial device (e.g. "/dev/ttyS0")
+- `--shell SHELL` will execute the specified shell (e.g. "/bin/sh")
+- `--nvram FILE` causes terminal parameters stored in non-volatile memory
+   to be persisted to `FILE`.
 
 Example usage:
 
