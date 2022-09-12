@@ -32,16 +32,16 @@ The executable has the following dependencies:
 ### Running the Terminal
 
 ```
-Usage: dmd5620 [-h] [-v] [-V] [-D] [-d DEV|-s SHELL]\
-               [-t FILE] [-n FILE] [-- <gtk_options> ...]
+Usage: dmd5620 [-h] [-v] [-d DEV | -s SHELL] \
+               [-n FILE] [-f VER] [-- <gtk_options> ...]
 AT&T DMD 5620 Terminal emulator.
 
 -h, --help                display help and exit
 -v, --version             display version and exit
--t, --trace FILE          trace to FILE
--d, --device DEV          serial port name
 -s, --shell SHELL         execute SHELL instead of default user shell
+-d, --device DEV          serial port name
 -n, --nvram FILE          store nvram state in FILE
+-f, --firmware VER        use firmware version ("8;7;3" or "8;7;5")
 ```
 
 - `--help` displays the help shown above, and exits.
@@ -51,18 +51,16 @@ AT&T DMD 5620 Terminal emulator.
 - `--shell SHELL` will execute the specified shell (e.g. "/bin/sh")
 - `--device DEV` will attach the terminal to the specified physical or 
    virtual serial device (e.g. "/dev/ttyS0")
-- `--delete` will cause the terminal to send the DELETE character (`^?`)
-   instead of BACKSPACE (`^H`) when the backspace key is pressed.
-- `--trace FILE` allows optional and *extremely verbose* trace logging
-   to the supplied file. Tracing is turned on and off by pressing `F10`.
-- `--verbose` causes each character received or transmitted to be
-   printed to stdout. Useful for debugging.
+- `--firmware VER` selects the firmware version to use. Older DMD
+   terminals used firmware version "8;7;3". Newer terminals used firmware
+   version "8;7;5". The version must be specified as a string, and is
+   "8;7;5" by default.
 
 Example usage:
 
 ```
 $ dmd5620 --nvram ~/.dmd5620_nvram --shell /bin/sh
-$ dmd5620 -D --nvram ~/.dmd5620_nvram --device /dev/ttyS0
+$ dmd5620 --firmware "8;7;3" --nvram ~/.dmd5620_nvram --device /dev/ttyS0
 ```
 
 ### Configuration
@@ -71,6 +69,12 @@ All configuration of the terminal is done by pressing the `F9` key, which shows
 a series of menu buttons at the bottom of the screen. These buttons reveal
 menus that allow you to set the baud rate, reverse the video colors, turn on
 and off the bell, and so forth.
+
+In firmware version "8;7;3", these buttons are navigated by pressing TAB or
+BACKSPACE to move around, and pressing SPACE to change the values.
+
+In firmware version "8;7;5", the function keys or the mouse select and change
+the values.
 
 Full documentation is available here: [https://archives.loomcom.com/3b2/documents/DMD_Terminal/](https://archives.loomcom.com/3b2/documents/DMD_Terminal/)
 
