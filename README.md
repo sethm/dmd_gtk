@@ -4,7 +4,7 @@ This is a GTK+ 3.0 implementation of an AT&T / Teletype DMD 5620 emulator.
 
 ## Status
 
-Version: 2.0.1
+Version: 2.1.0
 
 This is an actively developed project.
 
@@ -88,6 +88,17 @@ Certain keys are mapped to special DMD5620 function keys.
 * Shift+F9 is mapped to the terminal's RESET functionality.
 
 ## Changelog
+
+### Version 2.1.0
+
+* Sub-processes now inherit the user's environment.
+* Maximum execution rate is limited to prevent runaway starvation of
+  resources and slow performance.
+  
+### Version 2.0.1
+
+* Several major bug fixes to the UART code on the back end.
+* Now supports the ability to run firmware version 8;7;3 and 8;7;5.
 
 ### Version 1.4.1
 
