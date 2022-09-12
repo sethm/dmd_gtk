@@ -27,10 +27,6 @@ The executable has the following dependencies:
   https://rustlang.org/ and https://rustup.rs/
 - Type `make`
 
-This new build process is still somewhat experimental. The Makefile
-attempts to ensure that the Git submodule `dmd_core` is updated and built,
-but this has not yet been widely tested.
-
 ## Usage
 
 ### Running the Terminal
