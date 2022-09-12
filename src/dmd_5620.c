@@ -62,6 +62,7 @@
 
 #define PCHAR(p)   (((p) >= 0x20 && (p) < 0x7f) ? (p) : '.')
 #define TX_BUF_LEN    64
+#define MAX_STEPS     250000
 
 char VERSION_STRING[64];
 GtkWidget *main_window;
@@ -258,10 +259,14 @@ simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
 
     if (previous_clock >= 0) {
         /* We take 10 simulated steps per microsecond of wall clock
-         * time, based on a 10 MHz WE 32100 CPU */
-        steps = MIN(10 * (now - previous_clock), 10000000);
+         * time, based on a 10 MHz WE 32100 CPU. The maximum number of
+         * steps allowed is limited in order to prevent the CPU
+         * simulation from stealing too much processing time if
+         * running on a system with a slower main GTK thread refresh
+         * rate. */
+        steps = MIN(10 * (now - previous_clock), MAX_STEPS);
     } else {
-        steps = 100000;
+        steps = MAX_STEPS;
     }
 
     previous_clock = now;
