@@ -62,7 +62,7 @@
 
 #define PCHAR(p)   (((p) >= 0x20 && (p) < 0x7f) ? (p) : '.')
 #define TX_BUF_LEN    64
-#define MAX_STEPS     250000
+#define MAX_STEPS     350000
 
 char VERSION_STRING[64];
 GtkWidget *main_window;
@@ -70,14 +70,14 @@ cairo_surface_t *surface = NULL;
 GdkPixbuf *pixbuf = NULL;
 int pty_master, pty_slave;
 char *nvram = NULL;
-gint64 previous_clock = -1;
+size_t previous_clock = 0;
 uint8_t previous_vram[VIDRAM_SIZE];
 struct pollfd fds[2];
 pid_t shell_pid;
 volatile int window_beep = FALSE;
-volatile int dmd_thread_run = TRUE;
 int sigint_count = 0;
 int tty_fd = -1;
+int debug = FALSE;
 
 void
 int_handler(int signal)
@@ -115,7 +115,6 @@ close_window()
         cairo_surface_destroy(surface);
     }
 
-    dmd_thread_run = 0;
     gtk_main_quit();
 }
 
@@ -227,8 +226,7 @@ gboolean
 simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
 {
     uint8_t kbc;
-    gint64 now;
-    size_t steps;
+    size_t now, steps;
 
     /*
      * Poll for simulator I/O
@@ -257,17 +255,25 @@ simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
      */
     now = gdk_frame_clock_get_frame_time(clock);
 
-    if (previous_clock >= 0) {
+    if (previous_clock > 0) {
         /* We take 10 simulated steps per microsecond of wall clock
          * time, based on a 10 MHz WE 32100 CPU. The maximum number of
          * steps allowed is limited in order to prevent the CPU
          * simulation from stealing too much processing time if
          * running on a system with a slower main GTK thread refresh
          * rate. */
-        steps = MIN(10 * (now - previous_clock), MAX_STEPS);
+        size_t delta = now - previous_clock;
+        steps = MIN(10 * delta, MAX_STEPS);
+        if (debug) {
+            printf("[MAIN LOOP] executing %lu steps in %lu us. rate ~= %.2f MHz\n",
+                   steps,
+                   delta,
+                   (float)steps / (float)delta);
+        }
     } else {
         steps = MAX_STEPS;
     }
+
 
     previous_clock = now;
 
@@ -314,7 +320,7 @@ mouse_button(GtkWidget *widget, GdkEventButton *event, gpointer data)
  * Initialize a shell PTY
  */
 void
-pty_init(const char *shell)
+pty_init(const char *shell, char *envp[])
 {
     char pty_name[64];
 
@@ -338,7 +344,6 @@ pty_init(const char *shell)
         exit(-1);
     } else if (shell_pid == 0) {
         /* Child */
-        char *const env[] = {"TERM=dmd", NULL};
         int retval;
         close(pty_master);
 
@@ -355,9 +360,9 @@ pty_init(const char *shell)
         close(pty_slave);
 
         if (shell) {
-            retval = execle(shell, "-", NULL, env);
+            retval = execle(shell, "-", NULL, envp);
         } else {
-            retval = execle("/bin/sh", "-", NULL, env);
+            retval = execle("/bin/sh", "-", NULL, envp);
         }
 
         /* Child process is now replaced, nothing beyond this point
@@ -733,6 +738,7 @@ struct option long_options[] = {
     {"shell", required_argument, 0, 's'},
     {"device", required_argument, 0, 'd'},
     {"nvram", required_argument, 0, 'n'},
+    {"debug", no_argument, 0, 'b'}, /* Hidden and undocumented */
     {0, 0, 0, 0}};
 
 void usage()
@@ -752,7 +758,7 @@ const char *FIRMWARE_873 = "8;7;3";
 const char *FIRMWARE_875 = "8;7;5";
 
 int
-main(int argc, char *argv[])
+main(int argc, char *argv[], char *envp[])
 {
     int c, errflg = 0;
     char *shell = NULL;
@@ -774,7 +780,7 @@ main(int argc, char *argv[])
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "vhd:n:t:p:s:f:",
+    while ((c = getopt_long(argc, argv, "hvbd:n:t:p:s:f:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:
@@ -785,6 +791,9 @@ main(int argc, char *argv[])
         case 'v':
             printf("Version: %s\n", VERSION_STRING);
             exit(0);
+        case 'b': /* Hidden and undocumented */
+            debug = TRUE;
+            break;
         case 'n':
             nvram = optarg;
             break;
@@ -824,7 +833,7 @@ main(int argc, char *argv[])
             fprintf(stderr, "Cannot open %s as shell, or file is not executable.\n", shell);
             return -1;
         }
-        pty_init(shell);
+        pty_init(shell, envp);
     } else {
         if (stat(device, &sb) != 0) {
             fprintf(stderr, "Cannot open device %s.\n", device);
