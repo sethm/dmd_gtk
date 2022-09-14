@@ -32,6 +32,7 @@
 #include <gtk/gtk.h>
 
 #define WIDTH 800
+#define WIDTH_IN_BYTES 100
 #define HEIGHT 1024
 #define NVRAM_SIZE 2<<12
 #define VIDRAM_SIZE 1024 * 100

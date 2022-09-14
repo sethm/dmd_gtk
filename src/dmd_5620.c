@@ -138,8 +138,8 @@ gboolean
 draw_handler(GtkWidget *widget, cairo_t *cr, gpointer data)
 {
     cairo_set_source_surface(cr, surface, 0, 0);
+    gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
     cairo_paint(cr);
-
     return FALSE;
 }
 
@@ -148,6 +148,8 @@ refresh_display(GtkWidget *widget, gpointer data)
 {
     uint8_t oport;
     uint8_t *vram;
+    guchar *pixel_data;
+    uint32_t pixel_data_index;
     GdkWindow *window;
     const struct color *fg_color;
     const struct color *bg_color;
@@ -167,9 +169,8 @@ refresh_display(GtkWidget *widget, gpointer data)
 
     vram = dmd_video_ram();
 
-    guchar *p = gdk_pixbuf_get_pixels(pixbuf);
-    uint32_t p_index = 0;
-    int byte_width = WIDTH / 8;
+    pixel_data = gdk_pixbuf_get_pixels(pixbuf);
+    pixel_data_index = 0;
 
     if (vram == NULL) {
         fprintf(stderr, "ERROR: Unable to access video ram!\n");
@@ -189,33 +190,27 @@ refresh_display(GtkWidget *widget, gpointer data)
         }
 
         for (int y = 0; y < HEIGHT; y++) {
-            for (int x = 0; x < byte_width; x++) {
-                uint8_t b = vram[y*byte_width + x];
+            for (int x = 0; x < WIDTH_IN_BYTES; x++) {
+                uint8_t b = vram[y*WIDTH_IN_BYTES + x];
                 for (int i = 0; i < 8; i++) {
                     int bit = (b >> (7 - i)) & 1;
                     if (bit) {
-                        p[p_index++] = fg_color->r;
-                        p[p_index++] = fg_color->g;
-                        p[p_index++] = fg_color->b;
-                        p[p_index++] = fg_color->a;
+                        pixel_data[pixel_data_index++] = fg_color->r;
+                        pixel_data[pixel_data_index++] = fg_color->g;
+                        pixel_data[pixel_data_index++] = fg_color->b;
+                        pixel_data[pixel_data_index++] = fg_color->a;
                     } else {
-                        p[p_index++] = bg_color->r;
-                        p[p_index++] = bg_color->g;
-                        p[p_index++] = bg_color->b;
-                        p[p_index++] = bg_color->a;
+                        pixel_data[pixel_data_index++] = bg_color->r;
+                        pixel_data[pixel_data_index++] = bg_color->g;
+                        pixel_data[pixel_data_index++] = bg_color->b;
+                        pixel_data[pixel_data_index++] = bg_color->a;
                     }
                 }
             }
         }
     }
 
-    cairo_t *cr;
-    cr = cairo_create(surface);
-    gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
-    cairo_paint(cr);
-    cairo_fill(cr);
-    cairo_destroy(cr);
-
+    /* Notify the widget that it should repaint itself */
     gtk_widget_queue_draw(widget);
 
     return TRUE;
@@ -758,10 +753,13 @@ gtk_setup(int *argc, char ***argv)
     gtk_window_set_icon_name(GTK_WINDOW(main_window), "dmd5620");
     gtk_window_set_title(GTK_WINDOW(main_window), "AT&T DMD 5620");
     gtk_window_set_resizable(GTK_WINDOW(main_window), FALSE);
-    /* gtk_container_set_border_width(GTK_CONTAINER(main_window), 0); */
+    gtk_container_set_border_width(GTK_CONTAINER(main_window), 0);
 
     /* Create a GTK Box to contain menu and drawing area */
     box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+
+    /* TODO: Make border width configurable */
+    gtk_container_set_border_width(GTK_CONTAINER(box), 5);
 
     /* Build the menu */
     menu_bar = gtk_menu_bar_new();
@@ -769,7 +767,6 @@ gtk_setup(int *argc, char ***argv)
 
     /* Stuff the menu into the container. */
     gtk_box_pack_start(GTK_BOX(box), menu_bar, FALSE, FALSE, 0);
-
 
     drawing_area = gtk_drawing_area_new();
 
