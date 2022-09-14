@@ -255,14 +255,14 @@ simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
     now = gdk_frame_clock_get_frame_time(clock);
 
     if (previous_clock > 0) {
-        /* We take 10 simulated steps per microsecond of wall clock
-         * time, based on a 10 MHz WE 32100 CPU. The maximum number of
+        /* We take 7.2 simulated steps per microsecond of wall clock
+         * time, based on a 7.2 MHz WE 32100 CPU. The maximum number of
          * steps allowed is limited in order to prevent the CPU
          * simulation from stealing too much processing time if
          * running on a system with a slower main GTK thread refresh
          * rate. */
         size_t delta = now - previous_clock;
-        steps = MIN(10 * delta, MAX_STEPS);
+        steps = MIN((size_t)(7.2 * delta), MAX_STEPS);
         if (debug) {
             printf("[MAIN LOOP] executing %lu steps in %lu us. rate ~= %.2f MHz\n",
                    steps,
