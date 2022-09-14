@@ -71,7 +71,6 @@ GdkPixbuf *pixbuf = NULL;
 int pty_master, pty_slave;
 char *nvram = NULL;
 size_t previous_clock = 0;
-uint8_t previous_vram[VIDRAM_SIZE];
 struct pollfd fds[2];
 pid_t shell_pid;
 volatile int window_beep = FALSE;
@@ -148,6 +147,7 @@ gboolean
 refresh_display(GtkWidget *widget, gpointer data)
 {
     uint8_t oport;
+    uint8_t *vram;
     GdkWindow *window;
     const struct color *fg_color;
     const struct color *bg_color;
@@ -160,13 +160,12 @@ refresh_display(GtkWidget *widget, gpointer data)
         window_beep = FALSE;
     }
 
-    uint8_t *vram = dmd_video_ram();
-
-    if (memcmp(previous_vram, vram, VIDRAM_SIZE) == 0) {
+    /* If the video RAM hasn't been updated, there's nothing to do */
+    if (!dmd_video_ram_dirty()) {
         return TRUE;
     }
 
-    memcpy(previous_vram, vram, VIDRAM_SIZE);
+    vram = dmd_video_ram();
 
     guchar *p = gdk_pixbuf_get_pixels(pixbuf);
     uint32_t p_index = 0;
@@ -282,8 +281,6 @@ simulation_main_loop(GtkWidget *widget, GdkFrameClock *clock, gpointer data)
 
     /* Now refresh the display */
     return refresh_display(widget, data);
-
-    return TRUE;
 }
 
 gboolean
@@ -371,6 +368,7 @@ pty_init(const char *shell, char *envp[])
             perror("Could not start shell process: ");
             exit(-1);
         }
+        close(pty_master);
     }
 
     close(pty_slave);
@@ -479,11 +477,6 @@ tty_io_poll()
             fprintf(stderr, "error %d during write: %s\n", errno, strerror(errno));
         }
     }
-}
-
-void
-tty_set_blocking(int fd, int should_block)
-{
 }
 
 gboolean
@@ -678,28 +671,112 @@ keydown(GtkWidget *widget, GdkEventKey *event, gpointer data)
 }
 
 void
+show_about()
+{
+    GtkWidget *dialog;
+    GtkWidget *label;
+    GtkWidget *content_area;
+    GtkDialogFlags flags = GTK_DIALOG_DESTROY_WITH_PARENT;
+
+    const char *message = "Copyright (c) 2018-2022, Seth J. Morabito <web@loomcom.com>\n"
+        "More information can be found on https://loomcom.com/\n";
+
+    dialog = gtk_dialog_new_with_buttons("About",
+                                         GTK_WINDOW(main_window),
+                                         flags,
+                                         "Close",
+                                         GTK_RESPONSE_NONE,
+                                         NULL);
+
+    content_area = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+
+    gtk_widget_set_margin_start(content_area, 20);
+    gtk_widget_set_margin_end(content_area, 20);
+    gtk_widget_set_margin_top(content_area, 20);
+    gtk_widget_set_margin_bottom(content_area, 20);
+
+    label = gtk_label_new(message);
+
+    g_signal_connect_swapped(dialog, "response", G_CALLBACK(gtk_widget_destroy), dialog);
+
+    gtk_container_add(GTK_CONTAINER(content_area), label);
+    gtk_widget_show_all(dialog);
+}
+
+void
+build_menu(GtkWidget *menu_bar)
+{
+    GtkWidget *file_menu;
+    GtkWidget *help_menu;
+
+    GtkWidget *file_mi;
+    GtkWidget *quit_mi;
+
+    GtkWidget *help_mi;
+    GtkWidget *about_mi;
+
+
+    file_menu = gtk_menu_new();
+    help_menu = gtk_menu_new();
+
+    file_mi = gtk_menu_item_new_with_label("File");
+    quit_mi = gtk_menu_item_new_with_label("Quit");
+
+    help_mi = gtk_menu_item_new_with_label("Help");
+    about_mi = gtk_menu_item_new_with_label("About");
+
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(file_mi), file_menu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(file_menu), quit_mi);
+
+    gtk_menu_item_set_submenu(GTK_MENU_ITEM(help_mi), help_menu);
+    gtk_menu_shell_append(GTK_MENU_SHELL(help_menu), about_mi);
+
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu_bar), file_mi);
+    gtk_menu_shell_append(GTK_MENU_SHELL(menu_bar), help_mi);
+
+    /* Exit when user selects "Quit" from menu */
+    g_signal_connect(quit_mi, "activate", G_CALLBACK(close_window), NULL);
+    g_signal_connect(about_mi, "activate", G_CALLBACK(show_about), NULL);
+}
+
+void
 gtk_setup(int *argc, char ***argv)
 {
     GtkWidget *drawing_area;
+    GtkWidget *menu_bar;
+    GtkWidget *box;
 
     gtk_init(argc, argv);
 
+    /* Create the main window */
     main_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+
+    /* Be sure to exit cleanly when the user closes the window! */
+    g_signal_connect(main_window, "destroy", G_CALLBACK(close_window), NULL);
+
+    /* Set some properties on the main window */
     gtk_window_set_icon_name(GTK_WINDOW(main_window), "dmd5620");
     gtk_window_set_title(GTK_WINDOW(main_window), "AT&T DMD 5620");
     gtk_window_set_resizable(GTK_WINDOW(main_window), FALSE);
+    /* gtk_container_set_border_width(GTK_CONTAINER(main_window), 0); */
 
-    g_signal_connect(main_window, "destroy", G_CALLBACK(close_window), NULL);
+    /* Create a GTK Box to contain menu and drawing area */
+    box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
-    gtk_container_set_border_width(GTK_CONTAINER(main_window), 0);
+    /* Build the menu */
+    menu_bar = gtk_menu_bar_new();
+    build_menu(menu_bar);
+
+    /* Stuff the menu into the container. */
+    gtk_box_pack_start(GTK_BOX(box), menu_bar, FALSE, FALSE, 0);
+
 
     drawing_area = gtk_drawing_area_new();
 
     gtk_widget_set_size_request(drawing_area, 800, 1024);
+    gtk_box_pack_end(GTK_BOX(box), drawing_area, FALSE, FALSE, 0);
 
-    gtk_window_set_resizable(GTK_WINDOW(main_window), FALSE);
-
-    gtk_container_add(GTK_CONTAINER(main_window), drawing_area);
+    gtk_container_add(GTK_CONTAINER(main_window), box);
 
     /* Set up the animation handler, which will step the simulation
        and draw the display in an infinite loop */
@@ -729,6 +806,7 @@ gtk_setup(int *argc, char ***argv)
                           | GDK_POINTER_MOTION_MASK);
 
     gtk_widget_show_all(main_window);
+    gtk_window_present(GTK_WINDOW(main_window));
 }
 
 struct option long_options[] = {

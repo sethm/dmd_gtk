@@ -50,6 +50,7 @@ const struct color COLOR_DARK = { 0, 0, 0, 255 };
 
 /* dmd_core exported functions */
 extern uint8_t *dmd_video_ram();
+extern int dmd_video_ram_dirty();
 extern int dmd_init(uint8_t version);
 extern int dmd_step();
 extern int dmd_step_loop(size_t steps);
