@@ -32,12 +32,13 @@ The executable has the following dependencies:
 ### Running the Terminal
 
 ```
-Usage: dmd5620 [-h] [-v] [-d DEV|-s SHELL] \
+Usage: dmd5620 [-h] [-v] [-i] [-d DEV|-s SHELL] \
                [-f VER] [-n FILE] [-- <gtk_options> ...]
 AT&T DMD 5620 Terminal emulator.
 
 -h, --help              display help and exit
 -v, --version           display version and exit
+-i, --inherit           inherit parent environment
 -f, --firmware VER      Firmware version ("8;7;3" or "8;7;5")
 -d, --device DEV        serial port name
 -s, --shell SHELL       execute SHELL instead of default user shell
@@ -46,6 +47,7 @@ AT&T DMD 5620 Terminal emulator.
 
 - `--help` displays the help shown above, and exits.
 - `--version` displays the executable version number, and exits.
+- `--inherit` inherit parent shell environment.
 - `--firmware VER` selects the firmware version to use. Older DMD
    terminals used firmware version "8;7;3". Newer terminals used firmware
    version "8;7;5". The version must be specified as a string, and is

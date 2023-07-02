@@ -40,6 +40,7 @@
 #else
 #include <pty.h>
 #endif
+#include <stdbool.h>
 #include <stdlib.h>
 #include <utmp.h>
 #include <fcntl.h>
@@ -73,10 +74,10 @@ char *nvram = NULL;
 size_t previous_clock = 0;
 struct pollfd fds[2];
 pid_t shell_pid;
-volatile int window_beep = FALSE;
+volatile bool window_beep = true;
 int sigint_count = 0;
 int tty_fd = -1;
-int debug = FALSE;
+bool debug = false;
 
 void
 int_handler(int signal)
@@ -159,7 +160,7 @@ refresh_display(GtkWidget *widget, gpointer data)
 
     if (window_beep) {
         gdk_window_beep(window);
-        window_beep = FALSE;
+        window_beep = false;
     }
 
     /* If the video RAM hasn't been updated, there's nothing to do */
@@ -809,6 +810,7 @@ gtk_setup(int *argc, char ***argv)
 struct option long_options[] = {
     {"help", no_argument, 0, 'h'},
     {"version", no_argument, 0, 'v'},
+    {"inherit", no_argument, 0, 'i'},
     {"firmware", required_argument, 0, 'f'},
     {"shell", required_argument, 0, 's'},
     {"device", required_argument, 0, 'd'},
@@ -818,11 +820,12 @@ struct option long_options[] = {
 
 void usage()
 {
-    printf("Usage: dmd5620 [-h] [-v] [-d DEV|-s SHELL] \\\n"
+    printf("Usage: dmd5620 [-h] [-v] [-i] [-d DEV|-s SHELL] \\\n"
            "               [-f VER] [-n FILE] [-- <gtk_options> ...]\n");
     printf("AT&T DMD 5620 Terminal emulator.\n\n");
     printf("-h, --help              display help and exit\n");
     printf("-v, --version           display version and exit\n");
+    printf("-i, --inherit           inherit parent environment\n");
     printf("-f, --firmware VER      Firmware version (\"8;7;3\" or \"8;7;5\")\n");
     printf("-d, --device DEV        serial port name\n");
     printf("-s, --shell SHELL       execute SHELL instead of default user shell\n");
@@ -843,6 +846,7 @@ main(int argc, char *argv[], char *envp[])
     uint8_t nvram_buf[NVRAM_SIZE];
     FILE *fp;
     struct stat sb;
+    bool inherit = false; /* Inherit parent environment */
 
     snprintf(VERSION_STRING, 64, "%d.%d.%d",
              VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
@@ -855,7 +859,7 @@ main(int argc, char *argv[], char *envp[])
 
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "hvbd:n:t:p:s:f:",
+    while ((c = getopt_long(argc, argv, "hivbd:n:t:p:s:f:",
                             long_options, &option_index)) != -1) {
         switch(c) {
         case 0:
@@ -863,11 +867,14 @@ main(int argc, char *argv[], char *envp[])
         case 'h':
             usage();
             exit(0);
+        case 'i':
+            inherit = true;
+            break;
         case 'v':
             printf("Version: %s\n", VERSION_STRING);
             exit(0);
         case 'b': /* Hidden and undocumented */
-            debug = TRUE;
+            debug = true;
             break;
         case 'n':
             nvram = optarg;
@@ -908,7 +915,7 @@ main(int argc, char *argv[], char *envp[])
             fprintf(stderr, "Cannot open %s as shell, or file is not executable.\n", shell);
             return -1;
         }
-        pty_init(shell, envp);
+        pty_init(shell, inherit ? envp : NULL);
     } else {
         if (stat(device, &sb) != 0) {
             fprintf(stderr, "Cannot open device %s.\n", device);
